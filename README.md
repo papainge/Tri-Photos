@@ -32,6 +32,27 @@ build.bat
 Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
 PyInstaller, puis génère `dist\TriPhotos.exe`.
 
+## Générer un exécutable Linux
+
+Un exécutable autonome pour Linux se construit uniquement sur une machine Linux (pas
+de compilation croisée depuis Windows). Le module `tkinter` doit être installé au
+préalable (souvent absent par défaut) :
+
+```bash
+sudo apt install python3-tk      # Debian / Ubuntu
+sudo dnf install python3-tkinter # Fedora
+sudo pacman -S tk                # Arch
+```
+
+Puis lancer :
+
+```bash
+./build_linux.sh
+```
+
+Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
+PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
+
 ## Utilisation
 
 1. Cliquer sur **Choisir...** pour sélectionner le dossier contenant les photos à trier.
