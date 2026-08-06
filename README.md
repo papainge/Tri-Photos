@@ -9,21 +9,28 @@ Fonctionne sous Windows, Linux et macOS.
 
 ## Prérequis
 
-- Python 3.9 ou plus récent : https://www.python.org/downloads/
+- **Windows** : aucun, si vous utilisez `dist\TriPhotos.exe` (voir ci-dessous).
+- **Linux / macOS**, ou pour reconstruire l'exécutable Windows : Python 3.9 ou plus
+  récent : https://www.python.org/downloads/
   (cocher "Add python.exe to PATH" lors de l'installation sous Windows)
 
 ## Lancer l'application
 
-- **Windows** : double-cliquer sur `run.bat` (une fenêtre de terminal apparaît
-  brièvement puis se ferme dès que l'application est lancée), ou sur
-  `run_silent.vbs` pour ne voir apparaître aucun terminal du tout.
-- **Linux / macOS** : `./run.sh`
+- **Windows** : double-cliquer sur `dist\TriPhotos.exe`. Aucun terminal ne s'affiche,
+  Python n'a pas besoin d'être installé.
+- **Linux / macOS** : `./run.sh` (crée automatiquement un environnement virtuel `venv`
+  et installe les dépendances au premier lancement).
 
-Le script crée automatiquement un environnement virtuel (`venv`) et installe les
-dépendances (Pillow) au premier lancement. Avec `run_silent.vbs`, si Python n'est
-pas installé ou qu'une erreur survient pendant l'installation, aucun message ne
-s'affiche (tout est masqué) : en cas de souci, relancer via `run.bat` pour voir
-le message d'erreur.
+## Reconstruire TriPhotos.exe (Windows)
+
+Après une modification de `photo_sorter.py`, régénérer l'exécutable avec :
+
+```
+build.bat
+```
+
+Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
+PyInstaller, puis génère `dist\TriPhotos.exe`.
 
 ## Utilisation
 
@@ -52,6 +59,7 @@ Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` :
 pip install pillow-heif
 ```
 
-(les scripts `run.bat` / `run.sh` n'installent que Pillow par défaut ; sans
+(`TriPhotos.exe` et le script `run.sh` n'incluent que Pillow par défaut ; sans
 `pillow-heif`, les fichiers HEIC sont classés selon leur date de modification au lieu
-de la date EXIF).
+de la date EXIF. Pour l'inclure dans l'exécutable Windows, l'ajouter à
+`requirements.txt` puis relancer `build.bat`).
