@@ -1,9 +1,9 @@
-# Tri de photos par année / mois
+# Tri de photos par date
 
 Application locale (Python + Tkinter) qui analyse un dossier de photos, propose une
-arborescence Année / Mois basée sur la date de prise de vue (EXIF, avec repli sur la
-date de modification du fichier), puis copie les photos dans un nouveau dossier selon
-cette arborescence.
+arborescence par date (Année, Année / Mois, ou Année / Mois / Jour, au choix) basée sur
+la date de prise de vue (EXIF, avec repli sur la date de modification du fichier), puis
+copie les photos dans un nouveau dossier selon cette arborescence.
 
 Fonctionne sous Windows, Linux et macOS.
 
@@ -28,12 +28,19 @@ le message d'erreur.
 ## Utilisation
 
 1. Cliquer sur **Choisir...** pour sélectionner le dossier contenant les photos à trier.
-2. Cliquer sur **Analyser** : l'arborescence Année / Mois avec le nombre de photos par
-   mois s'affiche.
-3. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
+2. Choisir le **niveau de tri** souhaité : *Année*, *Année / Mois* ou
+   *Année / Mois / Jour*. Les niveaux étant imbriqués, choisir *Jour* implique
+   automatiquement le mois et l'année, etc. Ce choix peut être changé à tout moment,
+   même après l'analyse : l'aperçu se met à jour immédiatement.
+3. Cliquer sur **Analyser** : l'arborescence correspondant au niveau choisi, avec le
+   nombre de photos à chaque niveau, s'affiche.
+4. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
    l'arborescence.
-4. Cliquer sur **Créer l'arborescence et copier les photos**. Les photos originales ne
-   sont pas modifiées : une copie est placée dans `destination/ANNÉE/MOIS/`.
+5. Cliquer sur **Créer l'arborescence et copier les photos**. Les photos originales ne
+   sont pas modifiées : une copie est placée dans le sous-dossier correspondant (par
+   exemple `destination/ANNÉE/MOIS/JOUR/` au niveau *Jour*). Les photos déjà présentes
+   dans le dossier de destination (même contenu) sont détectées comme doublons et ne
+   sont pas copiées ; leur nombre est indiqué dans le message final.
 
 ## Formats supportés
 
