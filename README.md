@@ -70,6 +70,17 @@ PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
    dans le dossier de destination (même contenu) sont détectées comme doublons et ne
    sont pas copiées ; leur nombre est indiqué dans le message final.
 
+## Tests
+
+Les fonctions de tri, d'agrégation par niveau et de détection des doublons sont
+couvertes par des tests unitaires (module `unittest`, sans dépendance
+supplémentaire) :
+
+```bash
+venv\Scripts\python -m unittest discover -s tests -v   # Windows
+venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
+```
+
 ## Formats supportés
 
 JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF.
