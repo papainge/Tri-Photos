@@ -96,8 +96,11 @@ def list_media_files(source_dir: Path, recursive: bool = True, cancel_event: thr
     for path in entries:
         if cancel_event is not None and cancel_event.is_set():
             raise ScanCancelled()
-        if not path.is_file():
-            continue
+        try:
+            if not path.is_file():
+                continue
+        except OSError:
+            continue  # supprimé/inaccessible entre l'énumération et cette vérification
         category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
         if category is not None:
             candidates.append((path, category))
@@ -142,7 +145,14 @@ def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading
             if cancel_event is not None and cancel_event.is_set():
                 raise ScanCancelled()
             path, category = future_to_candidate[future]
-            date = future.result()
+            try:
+                date = future.result()
+            except OSError:
+                # Fichier supprimé ou devenu inaccessible entre l'énumération et la
+                # lecture de sa date (course avec un autre programme, partage réseau
+                # débranché, chemin trop long) : on l'ignore plutôt que de faire échouer
+                # toute l'analyse et perdre le travail déjà accompli sur les autres.
+                continue
             year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
             tree[category].setdefault(year, {}).setdefault(month, {}).setdefault(day, []).append(path)
     finally:

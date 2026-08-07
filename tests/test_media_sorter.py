@@ -180,6 +180,30 @@ class TestScanMedia(unittest.TestCase):
             year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
             self.assertIn(path, tree[year][month][day])
 
+    def test_skips_file_that_disappears_during_scan_without_failing_the_rest(self):
+        # Régression : un seul fichier devenu inaccessible entre l'énumération et la
+        # lecture de sa date (supprimé par un autre programme, partage réseau débranché,
+        # chemin trop long) ne doit pas faire échouer toute l'analyse — voir get_media_date
+        # avant correctif, dont le repli sur path.stat() n'était protégé par rien.
+        ok1 = self._make_png("a.png", datetime(2024, 1, 1))
+        broken = self._make_png("broken.png", datetime(2024, 1, 1))
+        ok2 = self._make_png("b.png", datetime(2024, 1, 2))
+
+        original_get_media_date = ps.get_media_date
+
+        def fail_for_broken_only(path, _original=original_get_media_date):
+            if path == broken:
+                raise OSError("fichier disparu")
+            return _original(path)
+
+        with unittest.mock.patch.object(ps, "get_media_date", side_effect=fail_for_broken_only):
+            tree = ps.scan_media(self.dir)["photos"]
+
+        self.assertEqual(ps.count_files(tree), 2)
+        self.assertIn(ok1, tree["2024"]["01"]["01"])
+        self.assertIn(ok2, tree["2024"]["01"]["02"])
+        self.assertNotIn(broken, [f for days in tree.get("2024", {}).values() for files in days.values() for f in files])
+
     def test_cancels_during_parallel_result_processing(self):
         # Contrairement à test_raises_scan_cancelled_when_event_already_set (déclenché
         # avant même de lister les fichiers), ce test vérifie le second point de
