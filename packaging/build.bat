@@ -16,7 +16,7 @@ if not exist venv (
 
 call venv\Scripts\activate.bat
 pip install -q -r requirements.txt
-pip install -q pyinstaller
+pip install -q pyinstaller==6.21.0
 
 python packaging\_patch_pyinstaller_tkinter.py
 

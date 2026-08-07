@@ -22,7 +22,7 @@ fi
 
 source venv/bin/activate
 pip install -q -r requirements.txt
-pip install -q pyinstaller
+pip install -q pyinstaller==6.21.0
 
 pyinstaller --noconfirm --onefile --name TriPhotos src/media_sorter.py
 
