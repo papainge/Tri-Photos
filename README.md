@@ -1,4 +1,7 @@
 # Tri de photos et vidéos par date
+
+[![Tests](https://github.com/papainge/Tri-Photos/actions/workflows/tests.yml/badge.svg)](https://github.com/papainge/Tri-Photos/actions/workflows/tests.yml)
+
 Application locale (Python + Tkinter) qui analyse un dossier de photos et vidéos,
 propose une arborescence par date (Année, Année / Mois, ou Année / Mois / Jour, au
 choix) basée sur la date de prise de vue ou de création (métadonnées EXIF pour les
@@ -157,6 +160,9 @@ venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
 ```
 
 L'ensemble de la suite (tests unitaires + charge) s'exécute en quelques secondes.
+
+Elle est aussi lancée automatiquement sur Windows et Linux (via Xvfb) à chaque push et
+pull request sur `master` ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
 
 ## Formats supportés
 
