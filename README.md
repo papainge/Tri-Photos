@@ -1,11 +1,12 @@
-# Tri de photos par date
+# Tri de photos et vidéos par date
 
 Application locale (Python + Tkinter) qui analyse un dossier de photos et vidéos,
 propose une arborescence par date (Année, Année / Mois, ou Année / Mois / Jour, au
-choix) basée sur la date de prise de vue (EXIF pour les photos, avec repli sur la date
-de modification du fichier), puis copie ou déplace les fichiers dans un nouveau dossier
-selon cette arborescence — avec la possibilité de séparer Photos et Vidéos à la racine
-de la destination.
+choix) basée sur la date de prise de vue ou de création (métadonnées EXIF pour les
+photos, métadonnées embarquées pour la plupart des formats vidéo, avec repli sur la
+date de modification du fichier si absente), puis copie ou déplace les fichiers dans un
+nouveau dossier selon cette arborescence — avec la possibilité de séparer Photos et
+Vidéos à la racine de la destination.
 
 Fonctionne sous Windows, Linux et macOS.
 
