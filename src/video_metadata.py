@@ -43,17 +43,29 @@ def _is_plausible_media_date(date: datetime) -> bool:
     return 1990 <= date.year <= datetime.now().year + 1
 
 
-def _iter_mp4_boxes(data: bytes, start: int, end: int):
-    """Itère les boîtes ISO-BMFF/QuickTime (type, début, fin du contenu) dans data[start:end]."""
+def _iter_mp4_boxes_in_file(f, start: int, end: int):
+    """Itère les boîtes ISO-BMFF/QuickTime (type, début, fin du contenu) entre les
+    positions start et end du fichier ouvert f, en ne lisant que l'en-tête (8 ou 16
+    octets) de chaque boîte — jamais son contenu.
+
+    Utilisé à la fois au niveau racine du fichier (pour trouver "moov" sans lire "mdat",
+    les données audio/vidéo) et à l'intérieur de "moov" (pour trouver "mvhd" sans
+    bufferiser les boîtes volumineuses qui l'entourent, notamment "trak", qui grossit
+    avec la durée/résolution de la vidéo).
+    """
     offset = start
     while offset + 8 <= end:
-        size = int.from_bytes(data[offset:offset + 4], "big")
-        box_type = data[offset + 4:offset + 8].decode("ascii", errors="replace")
+        f.seek(offset)
+        header = f.read(8)
+        if len(header) < 8:
+            break
+        size = int.from_bytes(header[0:4], "big")
+        box_type = header[4:8].decode("ascii", errors="replace")
         header_size = 8
         if size == 1:
             if offset + 16 > end:
                 break
-            size = int.from_bytes(data[offset + 8:offset + 16], "big")
+            size = int.from_bytes(f.read(8), "big")
             header_size = 16
         elif size == 0:
             size = end - offset
@@ -67,52 +79,37 @@ def get_mp4_creation_date(path: Path):
     """Lit la date de création dans l'atome "mvhd" d'un fichier MP4/MOV (boîte "moov"),
     sans dépendance externe. Renvoie None si elle est absente ou invalide.
 
-    "mdat" (les données audio/vidéo, potentiellement énormes) est ignoré sans être lu :
-    seul son en-tête est parcouru pour sauter directement à la boîte suivante.
+    Ni "mdat" (les données audio/vidéo) ni le reste de "moov" (notamment "trak", qui
+    grossit avec la durée/résolution de la vidéo et peut peser plusieurs dizaines à
+    centaines de Mo sur une vidéo longue) ne sont jamais lus en entier : seuls les
+    en-têtes des boîtes sont parcourus pour localiser "mvhd", dont seuls les quelques
+    octets utiles sont lus.
     """
     file_size = path.stat().st_size
-    moov_data = None
     with open(path, "rb") as f:
-        offset = 0
-        while offset + 8 <= file_size:
-            header = f.read(8)
-            if len(header) < 8:
-                break
-            size = int.from_bytes(header[0:4], "big")
-            box_type = header[4:8].decode("ascii", errors="replace")
-            header_size = 8
-            if size == 1:
-                size = int.from_bytes(f.read(8), "big")
-                header_size = 16
-            elif size == 0:
-                size = file_size - offset
-            if size < header_size:
-                break
-            if box_type == "moov":
-                moov_data = f.read(size - header_size)
-                break
-            f.seek(offset + size)
-            offset += size
+        moov = next((b for b in _iter_mp4_boxes_in_file(f, 0, file_size) if b[0] == "moov"), None)
+        if moov is None:
+            return None
+        _, moov_start, moov_end = moov
 
-    if not moov_data:
-        return None
+        mvhd = next((b for b in _iter_mp4_boxes_in_file(f, moov_start, moov_end) if b[0] == "mvhd"), None)
+        if mvhd is None:
+            return None
+        _, start, end = mvhd
+        f.seek(start)
+        mvhd_header = f.read(min(end - start, 12))
 
-    mvhd = next((b for b in _iter_mp4_boxes(moov_data, 0, len(moov_data)) if b[0] == "mvhd"), None)
-    if mvhd is None:
+    if not mvhd_header:
         return None
-    _, start, end = mvhd
-    if start >= len(moov_data):
-        return None
-
-    version = moov_data[start]
+    version = mvhd_header[0]
     if version == 1:
-        if start + 12 > end:
+        if len(mvhd_header) < 12:
             return None
-        creation_time = int.from_bytes(moov_data[start + 4:start + 12], "big")
+        creation_time = int.from_bytes(mvhd_header[4:12], "big")
     else:
-        if start + 8 > end:
+        if len(mvhd_header) < 8:
             return None
-        creation_time = int.from_bytes(moov_data[start + 4:start + 8], "big")
+        creation_time = int.from_bytes(mvhd_header[4:8], "big")
 
     if creation_time <= 0:
         return None

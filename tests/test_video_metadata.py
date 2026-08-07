@@ -243,6 +243,39 @@ class TestVideoParserLoad(unittest.TestCase):
         self.assertEqual(date, expected)
         self.assertLess(elapsed, MAX_SECONDS_LARGE_FILE)
 
+    def test_mp4_skips_large_trak_inside_moov_efficiently(self):
+        # Régression : get_mp4_creation_date() bufferisait auparavant tout le contenu de
+        # "moov" avant d'y chercher "mvhd" — alors que "trak" (qui grossit avec la
+        # durée/résolution de la vidéo) peut peser plusieurs dizaines à centaines de Mo,
+        # et se trouve dans la même boîte "moov" que "mvhd".
+        path = self.dir / "big_moov.mp4"
+        expected = datetime(2022, 5, 4, 3, 2, 1)
+        creation_time = int((expected - vm.MP4_EPOCH).total_seconds())
+        trak_size = 200 * 1024 * 1024
+
+        ftyp_content = b"isom" + struct.pack(">I", 0) + b"isomiso2mp41"
+        ftyp = struct.pack(">I", 8 + len(ftyp_content)) + b"ftyp" + ftyp_content
+        mvhd_content = bytes([0]) + b"\x00\x00\x00" + struct.pack(">III", creation_time, 0, 600) + struct.pack(">I", 0)
+        mvhd = struct.pack(">I", 8 + len(mvhd_content)) + b"mvhd" + mvhd_content
+        trak_header = struct.pack(">I", 8 + trak_size) + b"trak"
+        moov_size = 8 + len(mvhd) + len(trak_header) + trak_size
+
+        with open(path, "wb") as f:
+            f.write(ftyp)
+            f.write(struct.pack(">I", moov_size) + b"moov")
+            f.write(mvhd)
+            f.write(trak_header)
+            f.seek(trak_size - 1, os.SEEK_CUR)  # saute le "contenu" du trak sans l'écrire (fichier creux)
+            f.write(b"\x00")
+        self.assertGreater(path.stat().st_size, trak_size)
+
+        start = time.time()
+        date = vm.get_mp4_creation_date(path)
+        elapsed = time.time() - start
+
+        self.assertEqual(date, expected)
+        self.assertLess(elapsed, MAX_SECONDS_LARGE_FILE)
+
     def test_avi_skips_large_junk_list_efficiently(self):
         path = self.dir / "big_video.avi"
         expected = datetime(2021, 8, 20, 10, 0, 0)
