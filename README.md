@@ -12,11 +12,13 @@ Fonctionne sous Windows, Linux et macOS.
 ## Structure du projet
 
 ```
-src/media_sorter.py    Code source de l'application (module unique)
-tests/                 Tests unitaires et de charge
-packaging/             Scripts de génération des exécutables (build.bat, build_linux.sh)
-dist/                  Exécutables prêts à l'emploi (TriPhotos.exe, TriPhotos)
-run.bat / run.sh       Lancement depuis les sources (sans passer par un exécutable)
+src/media_sorter.py     Point d'entrée : interface Tkinter, tri/agrégation, copie/déplacement
+src/photo_metadata.py   Lecture de la date EXIF des photos
+src/video_metadata.py   Lecture de la date de création des vidéos (MP4, AVI, WMV, MKV/WEBM)
+tests/                  Tests unitaires et de charge (un fichier par module de src/)
+packaging/              Scripts de génération des exécutables (build.bat, build_linux.sh)
+dist/                   Exécutables prêts à l'emploi (TriPhotos.exe, TriPhotos)
+run.bat / run.sh        Lancement depuis les sources (sans passer par un exécutable)
 ```
 
 ## Prérequis
@@ -104,22 +106,28 @@ PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
 
 ## Tests
 
-Les fonctions de tri, d'agrégation par niveau et de détection des doublons sont
-couvertes par des tests unitaires (module `unittest`, sans dépendance
-supplémentaire) :
+Chaque module de `src/` a son fichier de tests dédié (module `unittest`, sans
+dépendance supplémentaire) :
+
+- `tests/test_photo_metadata.py` — lecture EXIF (photo_metadata.py)
+- `tests/test_video_metadata.py` — parseurs MP4/AVI/WMV/MKV, et leurs tests de charge
+  (fichiers vidéo de centaines de Mo, générés en fichiers creux/sparse pour rester
+  rapides à créer, qui vérifient que chaque parseur saute bien par-dessus les données
+  audio/vidéo sans jamais les lire — temps d'exécution borné, indépendant de la taille
+  du fichier)
+- `tests/test_media_sorter.py` — tri, agrégation par niveau, séparation Photos/Vidéos,
+  copie/déplacement, détection de doublons, et délégation de `get_media_date` vers les
+  deux modules ci-dessus
+- `tests/test_load.py` — tests de charge génériques : plusieurs milliers de fichiers
+  répartis sur des dizaines de dossiers/dates (`scan_media`, agrégation, détection de
+  doublons face à un dossier de destination déjà bien rempli)
 
 ```bash
 venv\Scripts\python -m unittest discover -s tests -v   # Windows
 venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
 ```
 
-`tests/test_load.py` ajoute des tests de charge : plusieurs milliers de fichiers
-répartis sur des dizaines de dossiers/dates (`scan_media`, agrégation, détection de
-doublons), et des fichiers vidéo de centaines de Mo (générés en fichiers creux/sparse
-pour rester rapides à créer) pour vérifier que chaque parseur de métadonnées vidéo saute
-bien par-dessus les données audio/vidéo sans jamais les lire — le temps d'exécution est
-borné et ne doit pas dépendre de la taille du fichier. L'ensemble de la suite (tests
-unitaires + charge) s'exécute en quelques secondes.
+L'ensemble de la suite (tests unitaires + charge) s'exécute en quelques secondes.
 
 ## Formats supportés
 
