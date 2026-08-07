@@ -27,6 +27,31 @@ class TestGetMediaDate(unittest.TestCase):
 
         self.assertEqual(ps.get_media_date(path), expected)
 
+    def test_uses_exif_date_from_png(self):
+        # Le chunk "eXIf" du PNG est un format d'image longtemps non couvert : on
+        # vérifie que l'élargissement à IMAGE_EXTENSIONS fonctionne bien pour lui aussi.
+        path = self.dir / "photo.png"
+        img = Image.new("RGB", (2, 2), color="red")
+        exif = img.getexif()
+        exif.get_ifd(ExifTags.IFD.Exif)[ps.EXIF_DATE_TIME_ORIGINAL] = "2021:09:09 09:09:09"
+        img.save(path, exif=exif.tobytes())
+
+        wrong = datetime(1999, 1, 1)
+        os.utime(path, (wrong.timestamp(), wrong.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), datetime(2021, 9, 9, 9, 9, 9))
+
+    def test_formats_without_exif_support_fall_back_to_mtime(self):
+        # GIF et BMP n'ont pas de mécanisme EXIF : getexif()/get_ifd() ne doit ni
+        # planter, ni renvoyer de fausse date, sur ces formats.
+        for fmt, ext in (("GIF", ".gif"), ("BMP", ".bmp")):
+            path = self.dir / f"photo{ext}"
+            Image.new("RGB", (2, 2), color="green").save(path, format=fmt)
+            expected = datetime(2016, 4, 4, 4, 4, 4)
+            os.utime(path, (expected.timestamp(), expected.timestamp()))
+
+            self.assertEqual(ps.get_media_date(path), expected)
+
     def _save_with_exif_date(self, path, tag_id, value, in_sub_ifd):
         img = Image.new("RGB", (2, 2), color="red")
         exif = img.getexif()
@@ -99,11 +124,124 @@ class TestGetMediaDate(unittest.TestCase):
 
         self.assertEqual(ps.get_media_date(path), expected)
 
-    def test_unsupported_video_container_falls_back_to_mtime(self):
+    def test_malformed_avi_falls_back_to_mtime(self):
         path = self.dir / "video.avi"
         path.write_bytes(b"RIFF....AVI LIST....")
 
         expected = datetime(2020, 7, 1, 10, 0, 0)
+        os.utime(path, (expected.timestamp(), expected.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def test_unsupported_video_format_falls_back_to_mtime(self):
+        # MPG/MPEG n'a pas d'équivalent standardisé aux atomes moov/mvhd (MP4), à IDIT
+        # (AVI), au File Properties Object (WMV) ou à DateUTC (Matroska).
+        path = self.dir / "video.mpg"
+        path.write_bytes(b"\x00\x00\x01\xba" + b"\x00" * 20)
+
+        expected = datetime(2020, 7, 1, 10, 0, 0)
+        os.utime(path, (expected.timestamp(), expected.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def _write_fake_avi(self, path, idit_text=None):
+        def chunk(fourcc, data):
+            header = struct.pack("<4sI", fourcc, len(data))
+            return header + data + (b"\x00" if len(data) % 2 else b"")
+
+        if idit_text is not None:
+            idit_data = idit_text.encode("ascii") + b"\x00"
+            info_list_content = b"INFO" + chunk(b"IDIT", idit_data)
+        else:
+            info_list_content = b"INFO" + chunk(b"ICMT", b"sans IDIT")
+        riff_content = b"AVI " + chunk(b"LIST", info_list_content)
+        path.write_bytes(chunk(b"RIFF", riff_content))
+
+    def test_uses_avi_idit_date(self):
+        path = self.dir / "video.avi"
+        expected = datetime(2022, 6, 15, 12, 0, 0)
+        self._write_fake_avi(path, idit_text=expected.strftime("%a %b %d %H:%M:%S %Y"))
+
+        wrong = datetime(1999, 1, 1)
+        os.utime(path, (wrong.timestamp(), wrong.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def test_avi_info_list_without_idit_falls_back_to_mtime(self):
+        path = self.dir / "video.avi"
+        self._write_fake_avi(path, idit_text=None)
+
+        expected = datetime(2020, 1, 1)
+        os.utime(path, (expected.timestamp(), expected.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def _write_fake_wmv(self, path, creation_filetime):
+        file_properties_data = (
+            b"\x00" * 16
+            + struct.pack("<Q", 0)
+            + struct.pack("<Q", creation_filetime)
+            + struct.pack("<Q", 0)
+        )
+        file_properties_object = (
+            ps.ASF_FILE_PROPERTIES_OBJECT_GUID
+            + struct.pack("<Q", 24 + len(file_properties_data))
+            + file_properties_data
+        )
+        header_specific = struct.pack("<IH", 1, 0)  # 1 sous-objet, réservé
+        header_object_content = header_specific + file_properties_object
+        header_object_size = 24 + len(header_object_content)
+        header = ps.ASF_HEADER_OBJECT_GUID + struct.pack("<Q", header_object_size) + header_object_content
+        path.write_bytes(header)
+
+    def test_uses_wmv_file_properties_creation_date(self):
+        path = self.dir / "video.wmv"
+        expected = datetime(2019, 4, 10, 8, 30, 0)
+        delta = expected - ps.FILETIME_EPOCH
+        creation_filetime = (delta.days * 86400 + delta.seconds) * 10_000_000
+        self._write_fake_wmv(path, creation_filetime)
+
+        wrong = datetime(1999, 1, 1)
+        os.utime(path, (wrong.timestamp(), wrong.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def test_wmv_falls_back_to_mtime_when_creation_date_is_zero(self):
+        path = self.dir / "video.wmv"
+        self._write_fake_wmv(path, creation_filetime=0)
+
+        expected = datetime(2018, 8, 8, 8, 0, 0)
+        os.utime(path, (expected.timestamp(), expected.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def _write_fake_matroska(self, path, date_utc_ns=None):
+        def elem(id_bytes, payload):
+            return id_bytes + bytes([0x80 | len(payload)]) + payload
+
+        info_content = elem(b"\x44\x61", struct.pack(">q", date_utc_ns)) if date_utc_ns is not None else b""
+        segment_content = elem(b"\x15\x49\xa9\x66", info_content)
+        segment_elem = b"\x18\x53\x80\x67" + bytes([0x80 | len(segment_content)]) + segment_content
+        ebml_header_elem = b"\x1a\x45\xdf\xa3" + bytes([0x80 | 4]) + b"\x00" * 4
+        path.write_bytes(ebml_header_elem + segment_elem)
+
+    def test_uses_matroska_date_utc(self):
+        path = self.dir / "video.mkv"
+        expected = datetime(2020, 3, 4, 5, 6, 7)
+        delta = expected - ps.MATROSKA_DATE_UTC_EPOCH
+        date_utc_ns = (delta.days * 86400 + delta.seconds) * 1_000_000_000
+        self._write_fake_matroska(path, date_utc_ns)
+
+        wrong = datetime(1999, 1, 1)
+        os.utime(path, (wrong.timestamp(), wrong.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def test_matroska_info_without_date_utc_falls_back_to_mtime(self):
+        path = self.dir / "video.webm"
+        self._write_fake_matroska(path, date_utc_ns=None)
+
+        expected = datetime(2017, 5, 5, 5, 5, 5)
         os.utime(path, (expected.timestamp(), expected.timestamp()))
 
         self.assertEqual(ps.get_media_date(path), expected)

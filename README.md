@@ -93,12 +93,21 @@ venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
 
 ## Formats supportés
 
-- **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF.
-- **Vidéos** : MP4, MOV, AVI, MKV, M4V, 3GP, WMV, MPG/MPEG, WEBM. Pour les formats
-  MP4/MOV/M4V/3GP (boîte `moov`/`mvhd`), la date de création embarquée dans le fichier
-  est lue directement, sans dépendance externe. Les autres conteneurs (AVI, MKV, WMV,
-  WEBM...) n'ont pas ce format de métadonnées et sont datés via la date de modification
-  du fichier.
+- **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF. La date EXIF (DateTimeOriginal,
+  puis DateTimeDigitized, puis DateTime) est lue quand le format et le fichier la
+  portent (JPEG, TIFF, HEIC/HEIF, PNG, WEBP) ; GIF et BMP n'ont pas de mécanisme EXIF et
+  sont toujours datés via la date de modification.
+- **Vidéos** : MP4, MOV, M4V, 3GP, AVI, WMV, MKV, WEBM, MPG/MPEG. La date de création
+  embarquée est lue directement, sans dépendance externe, pour chacun de ces conteneurs
+  (sauf MPG/MPEG, qui n'a pas d'équivalent standardisé) :
+  - **MP4/MOV/M4V/3GP** : boîte `moov`/`mvhd` (ISO-BMFF/QuickTime).
+  - **AVI** : chunk `IDIT` du `LIST INFO` (absent de nombreux AVI modernes).
+  - **WMV** : `File Properties Object` (ASF).
+  - **MKV/WEBM** : élément `DateUTC` (`Segment`/`Info`, EBML/Matroska).
+
+  Quand la métadonnée correspondante est absente du fichier (chunk/objet non renseigné
+  par le logiciel d'origine), la date de modification du fichier est utilisée à la
+  place, comme pour les photos sans EXIF.
 
 Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` :
 
