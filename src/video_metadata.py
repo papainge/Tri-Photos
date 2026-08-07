@@ -11,6 +11,10 @@ Chaque parseur ne lit jamais les données audio/vidéo elles-mêmes (potentielle
 en-têtes du conteneur. MPG/MPEG n'a pas d'équivalent standardisé à ces structures et
 n'est donc pas géré ici (voir media_sorter.get_media_date pour le repli sur la date de
 modification du fichier).
+
+Copyright (C) 2026 Guillaume Pataut
+Logiciel libre distribué sous licence GNU GPL v3 (ou ultérieure) — voir le fichier
+LICENSE à la racine du dépôt, ou <https://www.gnu.org/licenses/>.
 """
 
 from datetime import datetime, timedelta

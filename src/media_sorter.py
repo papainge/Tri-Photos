@@ -1,4 +1,19 @@
-"""Tri de photos et vidéos par date - interface graphique Tkinter (cross-platform)."""
+"""Tri de photos et vidéos par date - interface graphique Tkinter (cross-platform).
+
+Copyright (C) 2026 Guillaume Pataut
+
+Ce programme est un logiciel libre : vous pouvez le redistribuer et/ou le modifier
+selon les termes de la GNU General Public License telle que publiée par la Free
+Software Foundation, soit la version 3 de la licence, soit (à votre choix) toute
+version ultérieure.
+
+Ce programme est distribué dans l'espoir qu'il sera utile, mais SANS AUCUNE GARANTIE ;
+sans même la garantie implicite de COMMERCIALISATION ou d'ADÉQUATION À UN USAGE
+PARTICULIER. Voir la GNU General Public License pour plus de détails.
+
+Vous devez avoir reçu une copie de la GNU General Public License avec ce programme.
+Si ce n'est pas le cas, voir <https://www.gnu.org/licenses/>.
+"""
 
 import hashlib
 import shutil

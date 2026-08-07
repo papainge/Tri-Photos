@@ -1,4 +1,9 @@
-"""Lecture de la date de prise de vue depuis les métadonnées EXIF des photos."""
+"""Lecture de la date de prise de vue depuis les métadonnées EXIF des photos.
+
+Copyright (C) 2026 Guillaume Pataut
+Logiciel libre distribué sous licence GNU GPL v3 (ou ultérieure) — voir le fichier
+LICENSE à la racine du dépôt, ou <https://www.gnu.org/licenses/>.
+"""
 
 from datetime import datetime
 from pathlib import Path

@@ -186,3 +186,10 @@ pip install pillow-heif
 `pillow-heif`, les fichiers HEIC sont classés selon leur date de modification au lieu
 de la date EXIF. Pour l'inclure dans l'exécutable Windows, l'ajouter à
 `requirements.txt` puis relancer `packaging\build.bat`).
+
+## Licence
+
+GNU General Public License v3.0 (ou ultérieure) — voir le fichier [LICENSE](LICENSE).
+Vous pouvez utiliser, étudier, modifier et redistribuer ce logiciel librement, à
+condition que toute version redistribuée (modifiée ou non) reste sous la même
+licence et avec son code source disponible.
