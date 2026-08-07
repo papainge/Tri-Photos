@@ -32,9 +32,12 @@ run.bat / run.sh        Lancement depuis les sources (sans passer par un exécut
   ci-dessous).
 - **Linux (x86_64)** : aucun non plus, si vous téléchargez `TriPhotos` depuis la même
   page et que votre distribution est assez récente (voir ci-dessous).
-- **macOS**, ou pour reconstruire un exécutable : Python 3.9 ou plus récent :
-  https://www.python.org/downloads/
-  (cocher "Add python.exe to PATH" lors de l'installation sous Windows)
+- **macOS** : aucun exécutable n'est fourni pour cette plateforme (non prioritaire) ;
+  cloner le dépôt et lancer `./run.sh` (voir ci-dessous), ce qui nécessite Python 3.9
+  ou plus récent : https://www.python.org/downloads/
+- Pour reconstruire vous-même l'exécutable Windows ou Linux : Python 3.9 ou plus
+  récent également (cocher "Add python.exe to PATH" lors de l'installation sous
+  Windows).
 
 ## Lancer l'application
 
