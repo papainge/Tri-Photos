@@ -16,6 +16,7 @@ Si ce n'est pas le cas, voir <https://www.gnu.org/licenses/>.
 """
 
 import hashlib
+import os
 import shutil
 import threading
 import time
@@ -87,23 +88,44 @@ def list_media_files(source_dir: Path, recursive: bool = True, cancel_event: thr
     uniquement à sa racine), sans lire leurs métadonnées. Renvoie une liste de
     (Path, catégorie).
 
+    Utilise os.walk()/os.scandir() plutôt que Path.rglob()/glob() : ces derniers ne
+    renvoient qu'un chemin, sans indiquer s'il s'agit d'un fichier ou d'un dossier, ce
+    qui obligeait un path.is_file() séparé — un aller-retour disque de plus par entrée.
+    os.walk()/os.scandir() connaissent déjà ce type (attribut renvoyé par le système de
+    fichiers lors de la lecture du dossier) et le réutilisent sans appel supplémentaire.
+    Sensible sur un dossier réseau/externe lent avec des centaines de milliers
+    d'entrées, où chaque aller-retour disque de plus s'additionne (l'énumération
+    elle-même n'est pas parallélisée, contrairement à la lecture des dates).
+
     Utilisé par scan_media (avant la lecture des dates, potentiellement longue) et par
     count_media_files (comptage rapide pour donner un ordre de grandeur avant de lancer
     l'analyse complète).
     """
-    entries = source_dir.rglob("*") if recursive else source_dir.glob("*")
     candidates = []
-    for path in entries:
-        if cancel_event is not None and cancel_event.is_set():
-            raise ScanCancelled()
+    if recursive:
+        for dirpath, _dirnames, filenames in os.walk(source_dir):
+            for filename in filenames:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise ScanCancelled()
+                category = MEDIA_CATEGORY_BY_EXTENSION.get(Path(filename).suffix.lower())
+                if category is not None:
+                    candidates.append((Path(dirpath) / filename, category))
+    else:
         try:
-            if not path.is_file():
-                continue
+            with os.scandir(source_dir) as it:
+                for entry in it:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise ScanCancelled()
+                    try:
+                        if not entry.is_file():
+                            continue
+                    except OSError:
+                        continue  # supprimé/inaccessible entre l'énumération et cette vérification
+                    category = MEDIA_CATEGORY_BY_EXTENSION.get(Path(entry.name).suffix.lower())
+                    if category is not None:
+                        candidates.append((Path(entry.path), category))
         except OSError:
-            continue  # supprimé/inaccessible entre l'énumération et cette vérification
-        category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
-        if category is not None:
-            candidates.append((path, category))
+            pass
     return candidates
 
 

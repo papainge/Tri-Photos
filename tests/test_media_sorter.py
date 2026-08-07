@@ -228,6 +228,46 @@ class TestScanMedia(unittest.TestCase):
             timer.cancel()
 
 
+class TestListMediaFiles(unittest.TestCase):
+    # list_media_files() est passée de Path.rglob()/glob() + path.is_file() à
+    # os.walk()/os.scandir() (voir le module) : ces tests vérifient que la distinction
+    # fichier/dossier reste correcte avec la nouvelle implémentation, en particulier
+    # pour un dossier dont le nom ressemble à un fichier média — os.walk() classe déjà
+    # les entrées par type sans repasser par un is_file() par entrée.
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.dir = Path(self.tmpdir.name)
+
+    def test_recursive_ignores_a_subdirectory_named_like_a_media_file(self):
+        (self.dir / "fake.jpg").mkdir()
+        real_photo = self.dir / "real.jpg"
+        Image.new("RGB", (2, 2)).save(real_photo)
+
+        candidates = ps.list_media_files(self.dir, recursive=True)
+
+        self.assertEqual(candidates, [(real_photo, "photos")])
+
+    def test_non_recursive_ignores_a_subdirectory_named_like_a_media_file(self):
+        (self.dir / "fake.jpg").mkdir()
+        real_photo = self.dir / "real.jpg"
+        Image.new("RGB", (2, 2)).save(real_photo)
+
+        candidates = ps.list_media_files(self.dir, recursive=False)
+
+        self.assertEqual(candidates, [(real_photo, "photos")])
+
+    def test_non_recursive_ignores_subfolder_content(self):
+        Image.new("RGB", (2, 2)).save(self.dir / "root.jpg")
+        nested = self.dir / "nested"
+        nested.mkdir()
+        Image.new("RGB", (2, 2)).save(nested / "inside.jpg")
+
+        candidates = ps.list_media_files(self.dir, recursive=False)
+
+        self.assertEqual([path.name for path, _category in candidates], ["root.jpg"])
+
+
 class TestFileHash(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
