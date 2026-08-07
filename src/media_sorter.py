@@ -3,6 +3,7 @@
 import hashlib
 import shutil
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -190,6 +191,14 @@ def count_files(node) -> int:
     return sum(count_files(v) for v in node.values())
 
 
+def format_duration(seconds: float) -> str:
+    """Formate une durée pour l'affichage : en millisecondes en dessous d'une seconde,
+    sinon en secondes avec une décimale."""
+    if seconds < 1:
+        return f"{seconds * 1000:.0f} ms"
+    return f"{seconds:.1f} s"
+
+
 def build_display_tree(tree: dict, level: str, separate_media: bool) -> dict:
     """Construit l'arbre à afficher dans l'aperçu, selon le niveau de tri et le choix
     de séparer ou non Photos et Vidéos à la racine."""
@@ -285,6 +294,8 @@ class MediaSorterApp:
         self.recursive = tk.BooleanVar(value=True)
         self.tree_data = {}
         self._scan_cancel_event = None
+        self._scan_start_time = None
+        self.last_scan_duration = None
 
         self._build_ui()
 
@@ -404,6 +415,7 @@ class MediaSorterApp:
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.start(10)
 
+        self._scan_start_time = time.time()
         self._scan_cancel_event = threading.Event()
         threading.Thread(
             target=self._scan_worker,
@@ -450,6 +462,7 @@ class MediaSorterApp:
         self.progress.stop()
         self.progress.pack_forget()
         self._reset_scan_buttons()
+        self.last_scan_duration = time.time() - self._scan_start_time
         self.tree_data = tree
         self._refresh_treeview()
 
@@ -472,8 +485,11 @@ class MediaSorterApp:
         else:
             photo_count = count_files(self.tree_data.get("photos", {}))
             video_count = count_files(self.tree_data.get("videos", {}))
+            duration_text = ""
+            if self.last_scan_duration is not None:
+                duration_text = f"  —  analysé en {format_duration(self.last_scan_duration)}"
             self.total_label.config(
-                text=f"Total : {total} fichier(s)  ({photo_count} photo(s), {video_count} vidéo(s))"
+                text=f"Total : {total} fichier(s)  ({photo_count} photo(s), {video_count} vidéo(s)){duration_text}"
             )
             self.status_label.config(text=f"{total} fichier(s) trouvé(s). Choisissez un dossier de destination pour les ranger.")
             self.create_button.config(state="normal")

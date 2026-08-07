@@ -417,6 +417,16 @@ class TestFlattenTree(unittest.TestCase):
         self.assertEqual(result[("2023",)], ["b"])
 
 
+class TestFormatDuration(unittest.TestCase):
+    def test_shows_milliseconds_below_one_second(self):
+        self.assertEqual(ps.format_duration(0.123), "123 ms")
+        self.assertEqual(ps.format_duration(0.0), "0 ms")
+
+    def test_shows_seconds_with_one_decimal_from_one_second(self):
+        self.assertEqual(ps.format_duration(1.0), "1.0 s")
+        self.assertEqual(ps.format_duration(12.34), "12.3 s")
+
+
 class TestMonthFolderName(unittest.TestCase):
     def test_prefixes_month_with_its_french_name(self):
         self.assertEqual(ps.month_folder_name("01"), "01-Janvier")
