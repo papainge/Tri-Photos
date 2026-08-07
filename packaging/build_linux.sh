@@ -24,6 +24,8 @@ source venv/bin/activate
 pip install -q -r requirements.txt
 pip install -q pyinstaller==6.21.0
 
+python packaging/_patch_pyinstaller_tkinter.py
+
 pyinstaller --noconfirm --onefile --name TriPhotos src/media_sorter.py
 
 echo
