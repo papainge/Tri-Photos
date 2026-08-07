@@ -184,8 +184,9 @@ venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
 
 L'ensemble de la suite (tests unitaires + charge) s'exécute en quelques secondes.
 
-Elle est aussi lancée automatiquement sur Windows et Linux (via Xvfb) à chaque push et
-pull request sur `master` ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
+Elle est aussi lancée automatiquement sur Windows et Linux (via Xvfb), en Python 3.9
+(minimum annoncé ci-dessus) et 3.12, à chaque push et pull request sur `master`
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
 
 ## Formats supportés
 

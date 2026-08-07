@@ -13,13 +13,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
+        # 3.9 est le minimum annoncé par le README ; 3.12 une version récente
+        # représentative. Sans cette matrice, rien ne détecterait une régression de
+        # compatibilité avec le minimum promis (ex. une syntaxe/API trop récente).
+        python-version: ["3.9", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Installer les dépendances
         run: |
