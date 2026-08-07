@@ -23,19 +23,29 @@ IMAGE_EXTENSIONS = {
     ".heic", ".heif", ".webp",
 }
 
-DATE_TAG_ID = next(
-    (tag_id for tag_id, name in ExifTags.TAGS.items() if name == "DateTimeOriginal"),
-    None,
-)
+# Tags EXIF standards contenant une date, par ordre de préférence. DateTimeOriginal et
+# DateTimeDigitized sont rangés par l'appareil photo dans le sous-IFD Exif (et non dans
+# l'IFD0 renvoyé directement par Image.getexif()) : il faut passer par get_ifd() pour
+# les lire, sans quoi ils ne sont jamais trouvés et on retombe systématiquement sur la
+# date de modification du fichier.
+EXIF_DATE_TIME_ORIGINAL = 36867
+EXIF_DATE_TIME_DIGITIZED = 36868
+EXIF_DATE_TIME = 306
 
 
 def get_photo_date(path: Path) -> datetime:
-    """Renvoie la date de prise de vue (EXIF) ou, à défaut, la date de modification du fichier."""
-    if DATE_TAG_ID is not None and path.suffix.lower() in {".jpg", ".jpeg", ".tiff", ".tif", ".heic", ".heif"}:
+    """Renvoie la date de prise de vue (métadonnées EXIF) ou, à défaut, la date de
+    modification du fichier sur le disque."""
+    if path.suffix.lower() in {".jpg", ".jpeg", ".tiff", ".tif", ".heic", ".heif"}:
         try:
             with Image.open(path) as img:
                 exif = img.getexif()
-                raw = exif.get(DATE_TAG_ID)
+                exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+                raw = (
+                    exif_ifd.get(EXIF_DATE_TIME_ORIGINAL)
+                    or exif_ifd.get(EXIF_DATE_TIME_DIGITIZED)
+                    or exif.get(EXIF_DATE_TIME)
+                )
                 if raw:
                     return datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")
         except Exception:

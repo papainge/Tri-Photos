@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PIL import Image
+from PIL import ExifTags, Image
 
 import photo_sorter as ps
 
@@ -26,18 +26,38 @@ class TestGetPhotoDate(unittest.TestCase):
 
         self.assertEqual(ps.get_photo_date(path), expected)
 
-    def test_uses_exif_date_when_present(self):
-        path = self.dir / "photo.jpg"
+    def _save_with_exif_date(self, path, tag_id, value, in_sub_ifd):
         img = Image.new("RGB", (2, 2), color="red")
         exif = img.getexif()
-        exif[ps.DATE_TAG_ID] = "2020:05:17 10:30:00"
+        if in_sub_ifd:
+            exif.get_ifd(ExifTags.IFD.Exif)[tag_id] = value
+        else:
+            exif[tag_id] = value
         img.save(path, exif=exif)
 
         # La date de modification ne doit pas être utilisée si l'EXIF est présente.
         wrong = datetime(1999, 1, 1)
         os.utime(path, (wrong.timestamp(), wrong.timestamp()))
 
+    def test_uses_exif_date_time_original_from_sub_ifd(self):
+        # C'est là qu'un vrai appareil photo range DateTimeOriginal : pas dans l'IFD0
+        # renvoyé directement par getexif(), mais dans le sous-IFD Exif.
+        path = self.dir / "photo.jpg"
+        self._save_with_exif_date(path, ps.EXIF_DATE_TIME_ORIGINAL, "2020:05:17 10:30:00", in_sub_ifd=True)
+
         self.assertEqual(ps.get_photo_date(path), datetime(2020, 5, 17, 10, 30, 0))
+
+    def test_falls_back_to_date_time_digitized(self):
+        path = self.dir / "photo.jpg"
+        self._save_with_exif_date(path, ps.EXIF_DATE_TIME_DIGITIZED, "2018:02:03 09:00:00", in_sub_ifd=True)
+
+        self.assertEqual(ps.get_photo_date(path), datetime(2018, 2, 3, 9, 0, 0))
+
+    def test_falls_back_to_date_time_when_no_original_or_digitized(self):
+        path = self.dir / "photo.jpg"
+        self._save_with_exif_date(path, ps.EXIF_DATE_TIME, "2017:11:20 14:00:00", in_sub_ifd=False)
+
+        self.assertEqual(ps.get_photo_date(path), datetime(2017, 11, 20, 14, 0, 0))
 
 
 class TestScanPhotos(unittest.TestCase):
