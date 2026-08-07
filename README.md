@@ -97,9 +97,13 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
 ## Utilisation
 
 1. Cliquer sur **Choisir...** pour sélectionner le dossier contenant les photos et
-   vidéos à trier. La case **Inclure les sous-dossiers** (cochée par défaut) détermine
-   si l'analyse descend dans les sous-dossiers ou se limite à la racine du dossier
-   choisi ; ce choix est pris en compte au moment de cliquer sur **Analyser**.
+   vidéos à trier. Un nombre total de fichiers photo/vidéo trouvés dans ce dossier
+   s'affiche alors immédiatement (comptage rapide, sans lecture des dates) — un ordre
+   de grandeur avant de lancer l'analyse complète, potentiellement plus longue. La case
+   **Inclure les sous-dossiers** (cochée par défaut) détermine si l'analyse descend
+   dans les sous-dossiers ou se limite à la racine du dossier choisi ; la décocher met
+   aussi à jour ce comptage rapide immédiatement, et est prise en compte pour
+   l'analyse elle-même au moment de cliquer sur **Analyser**.
 2. Choisir le **niveau de tri** souhaité : *Année*, *Année / Mois* ou
    *Année / Mois / Jour*. Les niveaux étant imbriqués, choisir *Jour* implique
    automatiquement le mois et l'année, etc. Ce choix peut être changé à tout moment,

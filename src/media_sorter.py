@@ -82,6 +82,39 @@ class ScanCancelled(Exception):
     """Levée par scan_media() quand cancel_event est déclenché en cours d'analyse."""
 
 
+def list_media_files(source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None) -> list:
+    """Énumère les fichiers photo/vidéo de source_dir (récursivement par défaut, ou
+    uniquement à sa racine), sans lire leurs métadonnées. Renvoie une liste de
+    (Path, catégorie).
+
+    Utilisé par scan_media (avant la lecture des dates, potentiellement longue) et par
+    count_media_files (comptage rapide pour donner un ordre de grandeur avant de lancer
+    l'analyse complète).
+    """
+    entries = source_dir.rglob("*") if recursive else source_dir.glob("*")
+    candidates = []
+    for path in entries:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ScanCancelled()
+        if not path.is_file():
+            continue
+        category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
+        if category is not None:
+            candidates.append((path, category))
+    return candidates
+
+
+def count_media_files(source_dir: Path, recursive: bool = True) -> dict:
+    """Compte rapidement les fichiers photo/vidéo de source_dir par catégorie, sans lire
+    leurs métadonnées (contrairement à scan_media) : donne un ordre de grandeur avant de
+    lancer l'analyse complète, qui peut être bien plus longue sur un gros dossier.
+    """
+    counts = {category: 0 for category in CATEGORY_LABELS}
+    for _path, category in list_media_files(source_dir, recursive):
+        counts[category] += 1
+    return counts
+
+
 def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None, max_workers: int = None):
     """Parcourt source_dir (récursivement par défaut, ou uniquement à sa racine) et
     regroupe photos et vidéos par catégorie ("photos" / "videos") puis par (année, mois,
@@ -97,17 +130,7 @@ def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading
     parcours du dossier, ou entre deux résultats une fois la lecture des dates lancée.
     """
     tree = {category: {} for category in CATEGORY_LABELS}
-    entries = source_dir.rglob("*") if recursive else source_dir.glob("*")
-
-    candidates = []
-    for path in entries:
-        if cancel_event is not None and cancel_event.is_set():
-            raise ScanCancelled()
-        if not path.is_file():
-            continue
-        category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
-        if category is not None:
-            candidates.append((path, category))
+    candidates = list_media_files(source_dir, recursive, cancel_event)
 
     if not candidates:
         return tree
@@ -425,6 +448,7 @@ class MediaSorterApp:
         self._scan_start_time = None
         self.last_scan_duration = None
         self._copy_cancel_event = None
+        self._pre_count_generation = 0
 
         self._build_ui()
 
@@ -447,8 +471,11 @@ class MediaSorterApp:
         self.recursive_frame.pack(fill="x", **pad)
         ttk.Checkbutton(
             self.recursive_frame, text="Inclure les sous-dossiers",
-            variable=self.recursive,
+            variable=self.recursive, command=self._update_pre_scan_count,
         ).pack(side="left")
+
+        self.pre_scan_label = ttk.Label(self.root, foreground="#555555")
+        self.pre_scan_label.pack(fill="x", padx=8)
 
         self.level_frame = ttk.Frame(self.root)
         self.level_frame.pack(fill="x", **pad)
@@ -542,6 +569,46 @@ class MediaSorterApp:
         path = filedialog.askdirectory(title="Choisir le dossier de photos et vidéos à trier")
         if path:
             self.source_dir.set(path)
+            self._update_pre_scan_count()
+
+    def _update_pre_scan_count(self):
+        source = self.source_dir.get().strip()
+        if not source or not Path(source).is_dir():
+            self.pre_scan_label.config(text="")
+            return
+
+        source_path = Path(source)
+        recursive = self.recursive.get()
+        self._pre_count_generation += 1
+        generation = self._pre_count_generation
+        self.pre_scan_label.config(text="Comptage des fichiers...")
+        threading.Thread(
+            target=self._pre_scan_count_worker,
+            args=(source_path, recursive, generation),
+            daemon=True,
+        ).start()
+
+    def _pre_scan_count_worker(self, source_path: Path, recursive: bool, generation: int):
+        try:
+            counts = count_media_files(source_path, recursive)
+        except OSError:
+            counts = None
+        self.root.after(0, self._pre_scan_count_done, counts, generation)
+
+    def _pre_scan_count_done(self, counts, generation):
+        if generation != self._pre_count_generation:
+            return  # une demande plus récente a déjà pris le relais (autre dossier, autre choix de récursivité)
+        if counts is None:
+            self.pre_scan_label.config(text="")
+            return
+        total = sum(counts.values())
+        if total == 0:
+            self.pre_scan_label.config(text="Aucune photo ou vidéo trouvée dans ce dossier.")
+        else:
+            self.pre_scan_label.config(
+                text=f"{total} fichier(s) trouvé(s) avant analyse "
+                f"({counts['photos']} photo(s), {counts['videos']} vidéo(s))."
+            )
 
     def choose_dest(self):
         path = filedialog.askdirectory(title="Choisir le dossier où créer l'arborescence")
@@ -564,6 +631,8 @@ class MediaSorterApp:
         self.create_button.config(state="disabled")
         self._set_options_locked(True)
         self.cancel_scan_button.config(state="normal")
+        self._pre_count_generation += 1  # invalide un comptage rapide encore en cours
+        self.pre_scan_label.config(text="")
         self.treeview.delete(*self.treeview.get_children())
         self.total_label.config(text="")
         self.status_label.config(text="Analyse en cours...")

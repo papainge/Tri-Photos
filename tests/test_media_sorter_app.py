@@ -155,7 +155,11 @@ class TestFolderPickers(AppTestCase):
     def test_choose_source_sets_source_dir_from_dialog(self):
         filedialog.askdirectory = lambda **k: str(self.src_dir)
 
-        self.app.choose_source()
+        # Le comptage rapide déclenché en arrière-plan est hors sujet ici (voir
+        # TestPreScanCount) : sans mainloop actif, laisser son thread démarrer ferait
+        # échouer son root.after() une fois ce test terminé et self.root détruit.
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.choose_source()
 
         self.assertEqual(self.app.source_dir.get(), str(self.src_dir))
 
@@ -173,6 +177,74 @@ class TestFolderPickers(AppTestCase):
         self.app.choose_dest()
 
         self.assertEqual(self.app.dest_dir.get(), str(self.dest_dir))
+
+
+class TestPreScanCount(AppTestCase):
+    def test_shows_count_after_choosing_source_dir(self):
+        self._make_photo("a.jpg")
+        self._make_photo("b.jpg")
+        filedialog.askdirectory = lambda **k: str(self.src_dir)
+
+        run_and_wait(
+            self.root, [(10, self.app.choose_source)],
+            lambda: self.app.pre_scan_label.cget("text") != "Comptage des fichiers...",
+        )
+
+        self.assertIn("2 fichier(s)", self.app.pre_scan_label.cget("text"))
+        self.assertIn("2 photo(s)", self.app.pre_scan_label.cget("text"))
+
+    def test_shows_no_files_message_for_empty_folder(self):
+        self.app.source_dir.set(str(self.src_dir))
+
+        run_and_wait(
+            self.root, [(10, self.app._update_pre_scan_count)],
+            lambda: self.app.pre_scan_label.cget("text") != "Comptage des fichiers...",
+        )
+
+        self.assertEqual(self.app.pre_scan_label.cget("text"), "Aucune photo ou vidéo trouvée dans ce dossier.")
+
+    def test_recount_reflects_recursive_toggle(self):
+        self._make_photo("sous_dossier/a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.recursive.set(False)
+
+        run_and_wait(
+            self.root, [(10, self.app._update_pre_scan_count)],
+            lambda: self.app.pre_scan_label.cget("text") != "Comptage des fichiers...",
+        )
+        self.assertEqual(self.app.pre_scan_label.cget("text"), "Aucune photo ou vidéo trouvée dans ce dossier.")
+
+        self.app.recursive.set(True)
+        run_and_wait(
+            self.root, [(10, self.app._update_pre_scan_count)],
+            lambda: self.app.pre_scan_label.cget("text") != "Comptage des fichiers...",
+        )
+        self.assertIn("1 fichier(s)", self.app.pre_scan_label.cget("text"))
+
+    def test_cleared_when_source_dir_is_not_a_directory(self):
+        self.app.pre_scan_label.config(text="valeur figée")
+        self.app.source_dir.set(str(self.src_dir / "introuvable"))
+
+        self.app._update_pre_scan_count()
+
+        self.assertEqual(self.app.pre_scan_label.cget("text"), "")
+
+    def test_cleared_when_a_real_scan_starts(self):
+        self._make_photo("a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+
+        run_and_wait(
+            self.root, [(10, self.app._update_pre_scan_count)],
+            lambda: self.app.pre_scan_label.cget("text") != "Comptage des fichiers...",
+        )
+        self.assertNotEqual(self.app.pre_scan_label.cget("text"), "")
+
+        run_and_wait(
+            self.root, [(10, self.app.start_scan)],
+            lambda: str(self.app.scan_button.cget("state")) == "normal",
+        )
+
+        self.assertEqual(self.app.pre_scan_label.cget("text"), "")
 
 
 class TestOnCopyModeChange(AppTestCase):
