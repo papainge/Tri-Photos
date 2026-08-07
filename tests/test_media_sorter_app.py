@@ -390,10 +390,10 @@ class TestStartCopyValidation(AppTestCase):
         self.assertEqual(str(self.app.create_button.cget("state")), "normal")
         self.assertEqual(list(self.dest_dir.rglob("*.jpg")), [])
 
-    def test_errors_when_dest_dir_equals_source_dir(self):
+    def test_errors_when_dest_dir_equals_scanned_source_dir(self):
         photo = self._make_photo("a.jpg")
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
-        self.app.source_dir.set(str(self.src_dir))
+        self.app._scanned_source_path = self.src_dir.resolve()
         self.app.dest_dir.set(str(self.src_dir))
 
         self.app.start_copy()
@@ -401,18 +401,40 @@ class TestStartCopyValidation(AppTestCase):
         self.assertEqual(len(self.messages), 1)
         self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
 
-    def test_errors_when_dest_dir_is_nested_inside_source_dir(self):
+    def test_errors_when_dest_dir_is_nested_inside_scanned_source_dir(self):
         photo = self._make_photo("a.jpg")
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
         nested_dest = self.src_dir / "sorted"
         nested_dest.mkdir()
-        self.app.source_dir.set(str(self.src_dir))
+        self.app._scanned_source_path = self.src_dir.resolve()
         self.app.dest_dir.set(str(nested_dest))
 
         self.app.start_copy()
 
         self.assertEqual(len(self.messages), 1)
         self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
+
+    def test_editing_source_dir_field_after_scan_does_not_bypass_the_guard(self):
+        # Le garde-fou doit se baser sur le dossier réellement analysé (celui qui a
+        # produit tree_data), pas sur le contenu actuel du champ "Dossier source" :
+        # sinon il suffit de le vider ou de le changer après l'analyse pour contourner
+        # la vérification et copier les fichiers dans le dossier en cours d'analyse.
+        self._make_photo("a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+
+        run_and_wait(
+            self.root, [(10, self.app.start_scan)],
+            lambda: str(self.app.scan_button.cget("state")) == "normal",
+        )
+
+        self.app.source_dir.set("")  # vidé après coup, comme le ferait un utilisateur
+        self.app.dest_dir.set(str(self.src_dir))
+
+        self.app.start_copy()
+
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
+        self.assertEqual(list(self.src_dir.rglob("*.jpg")), [self.src_dir / "a.jpg"])
 
 
 class TestCopyLifecycle(AppTestCase):

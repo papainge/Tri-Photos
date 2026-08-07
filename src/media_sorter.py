@@ -416,6 +416,7 @@ class MediaSorterApp:
         self.separate_media = tk.BooleanVar(value=False)
         self.recursive = tk.BooleanVar(value=True)
         self.tree_data = {}
+        self._scanned_source_path = None
         self._scan_cancel_event = None
         self._scan_start_time = None
         self.last_scan_duration = None
@@ -588,7 +589,7 @@ class MediaSorterApp:
         except Exception as exc:
             self.root.after(0, self._scan_failed, exc)
             return
-        self.root.after(0, self._scan_done, tree)
+        self.root.after(0, self._scan_done, tree, source_path)
 
     def _reset_scan_buttons(self):
         self._scan_cancel_event = None
@@ -608,11 +609,15 @@ class MediaSorterApp:
         self.status_label.config(text="Erreur lors de l'analyse.")
         messagebox.showerror("Erreur", str(exc))
 
-    def _scan_done(self, tree):
+    def _scan_done(self, tree, source_path):
         self.progress.stop()
         self.progress.pack_forget()
         self._reset_scan_buttons()
         self.last_scan_duration = time.time() - self._scan_start_time
+        try:
+            self._scanned_source_path = source_path.resolve()
+        except OSError:
+            self._scanned_source_path = source_path
         self.tree_data = tree
         self._refresh_treeview()
 
@@ -668,11 +673,12 @@ class MediaSorterApp:
             return
 
         dest_path = Path(dest)
-        source = self.source_dir.get().strip()
-        if source:
-            source_path = Path(source).resolve()
+        # Comparé au dossier réellement analysé (celui qui a produit tree_data), pas au
+        # contenu actuel du champ "Dossier source" : sinon il suffit de vider ou modifier
+        # ce champ après l'analyse pour contourner la vérification.
+        if self._scanned_source_path is not None:
             resolved_dest = dest_path.resolve()
-            if resolved_dest == source_path or resolved_dest.is_relative_to(source_path):
+            if resolved_dest == self._scanned_source_path or resolved_dest.is_relative_to(self._scanned_source_path):
                 messagebox.showerror(
                     "Dossier de destination invalide",
                     "Le dossier de destination ne peut pas être le dossier source, ni un de ses "
