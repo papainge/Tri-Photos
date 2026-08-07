@@ -73,6 +73,16 @@ class TestGetPhotoExifDate(unittest.TestCase):
 
         self.assertEqual(pm.get_photo_exif_date(path), datetime(2017, 11, 20, 14, 0, 0))
 
+    def test_returns_none_for_implausible_date(self):
+        # Un appareil dont l'horloge n'a jamais été réglée renvoie souvent l'époque Unix
+        # (1970) ou une date fixe d'usine : la date de modification du fichier est plus
+        # fiable dans ce cas (voir media_date_utils.is_plausible_media_date, déjà
+        # appliqué côté vidéo).
+        path = self.dir / "photo.jpg"
+        self._save_with_exif_date(path, pm.EXIF_DATE_TIME_ORIGINAL, "1970:01:01 00:00:00", in_sub_ifd=True)
+
+        self.assertIsNone(pm.get_photo_exif_date(path))
+
 
 if __name__ == "__main__":
     unittest.main()

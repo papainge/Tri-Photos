@@ -18,6 +18,7 @@ Fonctionne sous Windows, Linux et macOS.
 src/media_sorter.py     Point d'entrée : interface Tkinter, tri/agrégation, copie/déplacement
 src/photo_metadata.py   Lecture de la date EXIF des photos
 src/video_metadata.py   Lecture de la date de création des vidéos (MP4, AVI, WMV, MKV/WEBM)
+src/media_date_utils.py Filtre de plausibilité partagé (écarte les dates aberrantes)
 tests/                  Tests unitaires et de charge (un fichier par module de src/)
 packaging/              Scripts de génération des exécutables (build.bat, build_linux.sh)
 dist/                   Sortie locale de build (généré, non versionné — voir Releases)
@@ -139,6 +140,7 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
 Chaque module de `src/` a son fichier de tests dédié (module `unittest`, sans
 dépendance supplémentaire) :
 
+- `tests/test_media_date_utils.py` — filtre de plausibilité des dates (bornes acceptées/rejetées)
 - `tests/test_photo_metadata.py` — lecture EXIF (photo_metadata.py)
 - `tests/test_video_metadata.py` — parseurs MP4/AVI/WMV/MKV, et leurs tests de charge
   (fichiers vidéo de centaines de Mo, générés en fichiers creux/sparse pour rester

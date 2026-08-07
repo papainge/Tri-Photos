@@ -20,6 +20,8 @@ LICENSE à la racine du dépôt, ou <https://www.gnu.org/licenses/>.
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from media_date_utils import is_plausible_media_date
+
 # Conteneurs vidéo dont la date de création embarquée se lit ici.
 MP4_LIKE_EXTENSIONS = {".mp4", ".mov", ".m4v", ".3gp"}    # ISO-BMFF/QuickTime (moov/mvhd)
 RIFF_VIDEO_EXTENSIONS = {".avi"}                          # RIFF (LIST INFO / IDIT)
@@ -35,12 +37,6 @@ FILETIME_EPOCH = datetime(1601, 1, 1)
 
 # Époque des dates Matroska/EBML (DateUTC), en nanosecondes.
 MATROSKA_DATE_UTC_EPOCH = datetime(2001, 1, 1)
-
-
-def _is_plausible_media_date(date: datetime) -> bool:
-    """Filtre les dates aberrantes (métadonnées corrompues ou jamais renseignées),
-    pour lesquelles la date de modification du fichier est plus fiable."""
-    return 1990 <= date.year <= datetime.now().year + 1
 
 
 def _iter_mp4_boxes_in_file(f, start: int, end: int):
@@ -117,7 +113,7 @@ def get_mp4_creation_date(path: Path):
         date = MP4_EPOCH + timedelta(seconds=creation_time)
     except OverflowError:
         return None
-    return date if _is_plausible_media_date(date) else None
+    return date if is_plausible_media_date(date) else None
 
 
 def _iter_riff_chunks(f, start: int, end: int):
@@ -167,7 +163,7 @@ def get_avi_creation_date(path: Path):
                         date = datetime.strptime(text, fmt)
                     except ValueError:
                         continue
-                    return date if _is_plausible_media_date(date) else None
+                    return date if is_plausible_media_date(date) else None
             return None
     return None
 
@@ -219,7 +215,7 @@ def get_wmv_creation_date(path: Path):
                     date = FILETIME_EPOCH + timedelta(microseconds=creation_100ns // 10)
                 except OverflowError:
                     return None
-                return date if _is_plausible_media_date(date) else None
+                return date if is_plausible_media_date(date) else None
             offset += size
     return None
 
@@ -301,7 +297,7 @@ def _find_matroska_date_utc(data: bytes, start: int, end: int):
                 date = MATROSKA_DATE_UTC_EPOCH + timedelta(microseconds=nanoseconds // 1000)
             except OverflowError:
                 return None
-            return date if _is_plausible_media_date(date) else None
+            return date if is_plausible_media_date(date) else None
         offset = elem_end
     return None
 

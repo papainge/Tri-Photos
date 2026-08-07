@@ -10,6 +10,8 @@ from pathlib import Path
 
 from PIL import Image, ExifTags
 
+from media_date_utils import is_plausible_media_date
+
 # Tags EXIF standards contenant une date, par ordre de préférence. DateTimeOriginal et
 # DateTimeDigitized sont rangés par l'appareil photo dans le sous-IFD Exif (et non dans
 # l'IFD0 renvoyé directement par Image.getexif()) : il faut passer par get_ifd() pour
@@ -22,8 +24,10 @@ EXIF_DATE_TIME = 306
 
 def get_photo_exif_date(path: Path):
     """Lit la date EXIF (DateTimeOriginal, puis DateTimeDigitized, puis DateTime) d'une
-    photo via Pillow. Renvoie None si absente (formats sans EXIF comme GIF/BMP) ou
-    illisible."""
+    photo via Pillow. Renvoie None si absente (formats sans EXIF comme GIF/BMP),
+    illisible, ou manifestement aberrante (appareil dont l'horloge n'a jamais été
+    réglée, métadonnée corrompue) — la date de modification du fichier est alors plus
+    fiable."""
     with Image.open(path) as img:
         exif = img.getexif()
         exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
@@ -33,5 +37,6 @@ def get_photo_exif_date(path: Path):
             or exif.get(EXIF_DATE_TIME)
         )
         if raw:
-            return datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")
+            date = datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")
+            return date if is_plausible_media_date(date) else None
     return None
