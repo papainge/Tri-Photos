@@ -1,5 +1,4 @@
 # Tri de photos et vidéos par date
-
 Application locale (Python + Tkinter) qui analyse un dossier de photos et vidéos,
 propose une arborescence par date (Année, Année / Mois, ou Année / Mois / Jour, au
 choix) basée sur la date de prise de vue ou de création (métadonnées EXIF pour les
@@ -122,7 +121,9 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
    `destination/2024/08-Août/15/`, ou `destination/Photos/2024/08-Août/15/` si Photos et
    Vidéos sont séparés). Les fichiers déjà présents dans le dossier de destination (même
    contenu) sont détectés comme doublons : ils ne sont pas dupliqués (et sont supprimés
-   de la source en mode *Déplacer*) ; leur nombre est indiqué dans le message final.
+   de la source en mode *Déplacer*) ; leur nombre est indiqué dans le message final. Comme
+   pour l'analyse, un bouton **Annuler** permet d'interrompre l'opération à la volée (le
+   fichier en cours de transfert va jusqu'à son terme, seul le suivant ne démarre pas).
 
 ## Tests
 

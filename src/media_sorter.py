@@ -328,6 +328,66 @@ def transfer_file(
     return "moved" if mode == "deplacer" else "copied"
 
 
+class CopyCancelled(Exception):
+    """Levée par copy_files() quand cancel_event est déclenché en cours de copie.
+
+    Porte la progression déjà accomplie (done, duplicates, errors) en arguments, pour
+    que l'appelant puisse rendre compte de ce qui a été transféré avant l'arrêt.
+    """
+
+
+def copy_files(
+    destination_map: dict, dest_path: Path, mode: str,
+    cancel_event: threading.Event = None, on_progress=None,
+) -> tuple:
+    """Copie ou déplace chaque groupe de fichiers de destination_map (voir
+    build_destination_map) vers dest_path, un sous-dossier par clé, avec détection de
+    doublons par dossier de destination (voir transfer_file).
+
+    Si cancel_event est fourni et déclenché en cours de route, lève CopyCancelled dès le
+    fichier suivant : l'annulation est coopérative, un transfert déjà commencé va
+    jusqu'au bout (impossible d'interrompre un shutil.copy2/move en cours), seul le
+    fichier suivant ne démarre pas.
+
+    on_progress(done), si fourni, est appelé après chaque fichier traité (succès,
+    doublon ou erreur).
+
+    Renvoie (done, duplicates, errors).
+    """
+    done = 0
+    duplicates = 0
+    errors = []
+    for folder_names, files in destination_map.items():
+        target_dir = dest_path.joinpath(*folder_names)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            for src_file in files:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise CopyCancelled(done, duplicates, errors)
+                errors.append(f"{src_file}: {exc}")
+                done += 1
+                if on_progress is not None:
+                    on_progress(done)
+            continue
+
+        pending_by_size = build_pending_size_index(target_dir)
+        hashed_by_size = {}
+
+        for src_file in files:
+            if cancel_event is not None and cancel_event.is_set():
+                raise CopyCancelled(done, duplicates, errors)
+            try:
+                if transfer_file(src_file, target_dir, pending_by_size, hashed_by_size, mode) == "duplicate":
+                    duplicates += 1
+            except Exception as exc:
+                errors.append(f"{src_file}: {exc}")
+            done += 1
+            if on_progress is not None:
+                on_progress(done)
+    return done, duplicates, errors
+
+
 class MediaSorterApp:
     def __init__(self, root):
         self.root = root
@@ -344,6 +404,7 @@ class MediaSorterApp:
         self._scan_cancel_event = None
         self._scan_start_time = None
         self.last_scan_duration = None
+        self._copy_cancel_event = None
 
         self._build_ui()
 
@@ -424,11 +485,17 @@ class MediaSorterApp:
             variable=self.copy_mode, command=self._on_copy_mode_change,
         ).pack(side="left", padx=(8, 0))
 
+        copy_button_frame = ttk.Frame(self.root)
+        copy_button_frame.pack(pady=(0, 10))
         self.create_button = ttk.Button(
-            self.root, text="Créer l'arborescence et copier les fichiers",
+            copy_button_frame, text="Créer l'arborescence et copier les fichiers",
             command=self.start_copy, state="disabled",
         )
-        self.create_button.pack(pady=(0, 10))
+        self.create_button.pack(side="left")
+        self.cancel_copy_button = ttk.Button(
+            copy_button_frame, text="Annuler", command=self.cancel_copy, state="disabled",
+        )
+        self.cancel_copy_button.pack(side="left", padx=(6, 0))
 
     def _on_copy_mode_change(self):
         verb = "copier" if self.copy_mode.get() == "copier" else "déplacer"
@@ -574,46 +641,55 @@ class MediaSorterApp:
             return
 
         self.create_button.config(state="disabled")
+        self.cancel_copy_button.config(state="normal")
         self.status_label.config(text=f"{verb} en cours...")
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.config(mode="determinate", maximum=total, value=0)
 
-        threading.Thread(target=self._copy_worker, args=(dest_path, destination_map, mode), daemon=True).start()
+        self._copy_cancel_event = threading.Event()
+        threading.Thread(
+            target=self._copy_worker,
+            args=(dest_path, destination_map, mode, self._copy_cancel_event),
+            daemon=True,
+        ).start()
 
-    def _copy_worker(self, dest_path: Path, destination_map: dict, mode: str):
-        done = 0
-        duplicates = 0
-        errors = []
-        for folder_names, files in destination_map.items():
-            target_dir = dest_path.joinpath(*folder_names)
-            try:
-                target_dir.mkdir(parents=True, exist_ok=True)
-            except Exception as exc:
-                for src_file in files:
-                    errors.append(f"{src_file}: {exc}")
-                    done += 1
-                    self.root.after(0, self._update_progress, done)
-                continue
+    def cancel_copy(self):
+        if self._copy_cancel_event is not None:
+            self._copy_cancel_event.set()
+        self.cancel_copy_button.config(state="disabled")
+        self.status_label.config(text="Annulation en cours...")
 
-            pending_by_size = build_pending_size_index(target_dir)
-            hashed_by_size = {}
-
-            for src_file in files:
-                try:
-                    if transfer_file(src_file, target_dir, pending_by_size, hashed_by_size, mode) == "duplicate":
-                        duplicates += 1
-                except Exception as exc:
-                    errors.append(f"{src_file}: {exc}")
-                done += 1
-                self.root.after(0, self._update_progress, done)
+    def _copy_worker(self, dest_path: Path, destination_map: dict, mode: str, cancel_event: threading.Event):
+        try:
+            done, duplicates, errors = copy_files(
+                destination_map, dest_path, mode,
+                cancel_event=cancel_event,
+                on_progress=lambda done: self.root.after(0, self._update_progress, done),
+            )
+        except CopyCancelled as exc:
+            done, duplicates, errors = exc.args
+            self.root.after(0, self._copy_cancelled, done, duplicates, errors, mode)
+            return
         self.root.after(0, self._copy_done, done, duplicates, errors, mode)
+
+    def _reset_copy_buttons(self):
+        self._copy_cancel_event = None
+        self.create_button.config(state="normal")
+        self.cancel_copy_button.config(state="disabled")
+
+    def _copy_cancelled(self, done, duplicates, errors, mode):
+        self.progress.pack_forget()
+        self._reset_copy_buttons()
+        transferred = done - duplicates - len(errors)
+        action_past = "déplacé(s)" if mode == "deplacer" else "copié(s)"
+        self.status_label.config(text=f"Annulé : {transferred} fichier(s) {action_past} avant l'arrêt.")
 
     def _update_progress(self, done):
         self.progress.config(value=done)
 
     def _copy_done(self, done, duplicates, errors, mode):
         self.progress.pack_forget()
-        self.create_button.config(state="normal")
+        self._reset_copy_buttons()
         transferred = done - duplicates - len(errors)
         if mode == "deplacer":
             action_past = "déplacé(s)"

@@ -357,6 +357,117 @@ class TestTransferFile(unittest.TestCase):
         self.assertEqual(len(hashed_by_size.get(9, set())), 2)
 
 
+class TestCopyFiles(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.src_dir = Path(self.tmpdir.name) / "src"
+        self.dest_dir = Path(self.tmpdir.name) / "dest"
+        self.src_dir.mkdir()
+        self.dest_dir.mkdir()
+
+    def _make_src_files(self, names):
+        paths = []
+        for name in names:
+            p = self.src_dir / name
+            p.write_bytes(f"contenu-{name}".encode())
+            paths.append(p)
+        return paths
+
+    def test_copies_into_the_right_destination_subfolders(self):
+        a, b = self._make_src_files(["a.jpg", "b.jpg"])
+        c = self._make_src_files(["c.jpg"])[0]
+        destination_map = {("2024", "01"): [a, b], ("2023", "12"): [c]}
+
+        done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
+
+        self.assertEqual((done, duplicates, errors), (3, 0, []))
+        self.assertTrue((self.dest_dir / "2024" / "01" / "a.jpg").exists())
+        self.assertTrue((self.dest_dir / "2024" / "01" / "b.jpg").exists())
+        self.assertTrue((self.dest_dir / "2023" / "12" / "c.jpg").exists())
+        self.assertTrue(a.exists())  # mode copier : la source n'est pas touchée
+
+    def test_deplacer_removes_sources(self):
+        a = self._make_src_files(["a.jpg"])[0]
+        destination_map = {("2024",): [a]}
+
+        done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "deplacer")
+
+        self.assertEqual((done, duplicates, errors), (1, 0, []))
+        self.assertFalse(a.exists())
+        self.assertTrue((self.dest_dir / "2024" / "a.jpg").exists())
+
+    def test_counts_duplicates_without_copying_them(self):
+        (self.dest_dir / "2024").mkdir()
+        (self.dest_dir / "2024" / "existing.jpg").write_bytes(b"contenu-dup")
+        dup = self.src_dir / "dup.jpg"
+        dup.write_bytes(b"contenu-dup")
+        new = self.src_dir / "new.jpg"
+        new.write_bytes(b"contenu-nouveau")
+        destination_map = {("2024",): [dup, new]}
+
+        done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
+
+        self.assertEqual((done, duplicates, errors), (2, 1, []))
+        self.assertEqual(sorted(p.name for p in (self.dest_dir / "2024").iterdir()), ["existing.jpg", "new.jpg"])
+
+    def test_mkdir_failure_records_one_error_per_file_and_keeps_counting(self):
+        # Régression : mkdir() qui échoue ne doit pas abandonner silencieusement tout un
+        # dossier avec une seule erreur générique — chaque fichier concerné doit être
+        # compté (voir _copy_worker avant correctif).
+        blocked = self.dest_dir / "blocked"
+        blocked.write_bytes(b"un fichier bloque la creation du dossier de meme nom")
+        files = self._make_src_files(["a.jpg", "b.jpg", "c.jpg"])
+        destination_map = {("blocked",): files}
+
+        done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
+
+        self.assertEqual(done, 3)
+        self.assertEqual(duplicates, 0)
+        self.assertEqual(len(errors), 3)
+
+    def test_on_progress_called_once_per_file_with_running_total(self):
+        files = self._make_src_files(["a.jpg", "b.jpg", "c.jpg"])
+        destination_map = {("2024",): files}
+        seen = []
+
+        ps.copy_files(destination_map, self.dest_dir, "copier", on_progress=seen.append)
+
+        self.assertEqual(seen, [1, 2, 3])
+
+    def test_raises_copy_cancelled_with_partial_progress(self):
+        files = self._make_src_files(["a.jpg", "b.jpg", "c.jpg", "d.jpg"])
+        destination_map = {("2024",): files}
+        cancel_event = threading.Event()
+
+        def on_progress(done):
+            if done == 2:
+                cancel_event.set()
+
+        with self.assertRaises(ps.CopyCancelled) as ctx:
+            ps.copy_files(destination_map, self.dest_dir, "copier", cancel_event=cancel_event, on_progress=on_progress)
+
+        done, duplicates, errors = ctx.exception.args
+        self.assertEqual(done, 2)
+        self.assertEqual(duplicates, 0)
+        self.assertEqual(errors, [])
+        # Seuls les 2 premiers fichiers (dans l'ordre d'insertion du dict) ont été copiés.
+        self.assertTrue((self.dest_dir / "2024" / "a.jpg").exists())
+        self.assertTrue((self.dest_dir / "2024" / "b.jpg").exists())
+        self.assertFalse((self.dest_dir / "2024" / "c.jpg").exists())
+        self.assertFalse((self.dest_dir / "2024" / "d.jpg").exists())
+
+    def test_cancel_event_not_set_runs_to_completion(self):
+        files = self._make_src_files(["a.jpg", "b.jpg"])
+        destination_map = {("2024",): files}
+
+        done, duplicates, errors = ps.copy_files(
+            destination_map, self.dest_dir, "copier", cancel_event=threading.Event()
+        )
+
+        self.assertEqual((done, duplicates, errors), (2, 0, []))
+
+
 class TestAggregateTree(unittest.TestCase):
     def setUp(self):
         self.tree = {
