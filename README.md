@@ -46,8 +46,9 @@ mais publiés sur la [page Releases](https://github.com/papainge/Tri-Photos/rele
   ne s'affiche, Python n'a pas besoin d'être installé.
 - **Linux (x86_64)** : télécharger `TriPhotos`, le rendre exécutable
   (`chmod +x TriPhotos`) puis le lancer (`./TriPhotos`). Binaire autonome, Python n'a pas
-  besoin d'être installé. Construit sur une distribution récente (glibc récente) : s'il
-  ne se lance pas sur une distribution plus ancienne (erreur du type
+  besoin d'être installé. Construit sur Ubuntu 22.04 LTS (glibc 2.35) pour rester
+  compatible avec la plupart des distributions encore maintenues ; s'il ne se lance
+  malgré tout pas sur une distribution plus ancienne (erreur du type
   `GLIBC_2.xx not found`), utiliser `./run.sh` à la place, ou reconstruire l'exécutable
   localement avec `packaging/build_linux.sh`.
 - **macOS** ou en cas de souci avec le binaire Linux fourni : cloner le dépôt et lancer
@@ -76,6 +77,17 @@ sudo apt install python3-tk      # Debian / Ubuntu
 sudo dnf install python3-tkinter # Fedora
 sudo pacman -S tk                # Arch
 ```
+
+**Important : construire sur une distribution pas trop récente.** Un exécutable
+PyInstaller `--onefile` embarque les bibliothèques Tcl/Tk du système de build (pas
+celles de la machine qui l'exécute), liées à une version minimale de glibc qui ne fait
+que croître avec l'âge de la distribution — un exécutable construit sur une
+distribution trop récente refuse de démarrer sur une machine plus ancienne
+(`ImportError: ... GLIBC_2.xx not found`, y compris si `python3-tk` y est installé,
+puisque ce n'est pas le Tcl/Tk du système qui est utilisé). Une Ubuntu 22.04 LTS
+(glibc 2.35) offre un bon compromis : compatible avec la quasi-totalité des
+distributions encore maintenues aujourd'hui. Éviter de construire sur une distribution
+de développement ou une version très récente (ex. glibc 2.4x).
 
 Puis lancer :
 
