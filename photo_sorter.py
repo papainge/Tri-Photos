@@ -145,6 +145,28 @@ def unique_destination(dest_dir: Path, filename: str) -> Path:
         i += 1
 
 
+def transfer_file(src_file: Path, target_dir: Path, existing_hashes: set, mode: str) -> str:
+    """Copie ou déplace src_file vers target_dir, sauf si son contenu s'y trouve déjà.
+
+    En mode "deplacer", un doublon est tout de même supprimé de la source puisqu'une
+    copie de son contenu existe déjà à destination. Renvoie "duplicate", "copied" ou
+    "moved".
+    """
+    src_hash = file_hash(src_file)
+    if src_hash in existing_hashes:
+        if mode == "deplacer":
+            src_file.unlink()
+        return "duplicate"
+
+    dst_file = unique_destination(target_dir, src_file.name)
+    if mode == "deplacer":
+        shutil.move(str(src_file), str(dst_file))
+    else:
+        shutil.copy2(src_file, dst_file)
+    existing_hashes.add(src_hash)
+    return "moved" if mode == "deplacer" else "copied"
+
+
 class PhotoSorterApp:
     def __init__(self, root):
         self.root = root
@@ -154,6 +176,7 @@ class PhotoSorterApp:
         self.source_dir = tk.StringVar()
         self.dest_dir = tk.StringVar()
         self.sort_level = tk.StringVar(value="jour")
+        self.copy_mode = tk.StringVar(value="copier")
         self.tree_data = {}
 
         self._build_ui()
@@ -201,11 +224,27 @@ class PhotoSorterApp:
         ttk.Entry(dest_frame, textvariable=self.dest_dir).pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(dest_frame, text="Choisir...", command=self.choose_dest).pack(side="left")
 
+        mode_frame = ttk.Frame(self.root)
+        mode_frame.pack(fill="x", **pad)
+        ttk.Label(mode_frame, text="Action :").pack(side="left")
+        ttk.Radiobutton(
+            mode_frame, text="Copier (originaux conservés)", value="copier",
+            variable=self.copy_mode, command=self._on_copy_mode_change,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Radiobutton(
+            mode_frame, text="Déplacer (originaux supprimés)", value="deplacer",
+            variable=self.copy_mode, command=self._on_copy_mode_change,
+        ).pack(side="left", padx=(8, 0))
+
         self.create_button = ttk.Button(
             self.root, text="Créer l'arborescence et copier les photos",
             command=self.start_copy, state="disabled",
         )
         self.create_button.pack(pady=(0, 10))
+
+    def _on_copy_mode_change(self):
+        verb = "copier" if self.copy_mode.get() == "copier" else "déplacer"
+        self.create_button.config(text=f"Créer l'arborescence et {verb} les photos")
 
     def choose_source(self):
         path = filedialog.askdirectory(title="Choisir le dossier de photos à trier")
@@ -295,21 +334,22 @@ class PhotoSorterApp:
         dest_path = Path(dest)
         aggregated = aggregate_tree(self.tree_data, self.sort_level.get())
         total = count_files(aggregated)
-        if not messagebox.askyesno(
-            "Confirmer",
-            f"Copier {total} photo(s) dans :\n{dest_path}\n\n"
-            "Les photos originales ne seront pas modifiées (copie, pas déplacement).",
-        ):
+        mode = self.copy_mode.get()
+        if mode == "deplacer":
+            verb, warning = "Déplacer", "Les photos originales seront supprimées de leur emplacement d'origine."
+        else:
+            verb, warning = "Copier", "Les photos originales ne seront pas modifiées (copie, pas déplacement)."
+        if not messagebox.askyesno("Confirmer", f"{verb} {total} photo(s) dans :\n{dest_path}\n\n{warning}"):
             return
 
         self.create_button.config(state="disabled")
-        self.status_label.config(text="Copie en cours...")
+        self.status_label.config(text=f"{verb} en cours...")
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.config(mode="determinate", maximum=total, value=0)
 
-        threading.Thread(target=self._copy_worker, args=(dest_path, aggregated), daemon=True).start()
+        threading.Thread(target=self._copy_worker, args=(dest_path, aggregated, mode), daemon=True).start()
 
-    def _copy_worker(self, dest_path: Path, aggregated: dict):
+    def _copy_worker(self, dest_path: Path, aggregated: dict, mode: str):
         done = 0
         duplicates = 0
         errors = []
@@ -331,35 +371,35 @@ class PhotoSorterApp:
 
             for src_file in files:
                 try:
-                    src_hash = file_hash(src_file)
-                    if src_hash in existing_hashes:
+                    if transfer_file(src_file, target_dir, existing_hashes, mode) == "duplicate":
                         duplicates += 1
-                    else:
-                        dst_file = unique_destination(target_dir, src_file.name)
-                        shutil.copy2(src_file, dst_file)
-                        existing_hashes.add(src_hash)
                 except Exception as exc:
                     errors.append(f"{src_file}: {exc}")
                 done += 1
                 self.root.after(0, self._update_progress, done)
-        self.root.after(0, self._copy_done, done, duplicates, errors)
+        self.root.after(0, self._copy_done, done, duplicates, errors, mode)
 
     def _update_progress(self, done):
         self.progress.config(value=done)
 
-    def _copy_done(self, done, duplicates, errors):
+    def _copy_done(self, done, duplicates, errors, mode):
         self.progress.pack_forget()
         self.create_button.config(state="normal")
-        copied = done - duplicates - len(errors)
-        dup_text = f"{duplicates} doublon(s) ignoré(s)"
+        transferred = done - duplicates - len(errors)
+        if mode == "deplacer":
+            action_past = "déplacée(s)"
+            dup_text = f"{duplicates} doublon(s) supprimé(s) de la source"
+        else:
+            action_past = "copiée(s)"
+            dup_text = f"{duplicates} doublon(s) ignoré(s)"
         if errors:
             self.status_label.config(text=f"Terminé avec {len(errors)} erreur(s) sur {done} photo(s), {dup_text}.")
             messagebox.showwarning("Terminé avec erreurs", "\n".join(errors[:20]) + ("\n..." if len(errors) > 20 else ""))
         else:
-            self.status_label.config(text=f"Terminé : {copied} photo(s) copiée(s), {dup_text}.")
+            self.status_label.config(text=f"Terminé : {transferred} photo(s) {action_past}, {dup_text}.")
             messagebox.showinfo(
                 "Terminé",
-                f"{copied} photo(s) copiée(s) avec succès dans :\n{self.dest_dir.get()}\n\n"
+                f"{transferred} photo(s) {action_past} avec succès dans :\n{self.dest_dir.get()}\n\n"
                 f"{dup_text} (déjà présent(s) dans le dossier de destination).",
             )
 

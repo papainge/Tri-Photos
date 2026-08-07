@@ -115,6 +115,62 @@ class TestUniqueDestination(unittest.TestCase):
         self.assertEqual(ps.unique_destination(self.dir, "photo.jpg"), self.dir / "photo_2.jpg")
 
 
+class TestTransferFile(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.src_dir = Path(self.tmpdir.name) / "src"
+        self.dest_dir = Path(self.tmpdir.name) / "dest"
+        self.src_dir.mkdir()
+        self.dest_dir.mkdir()
+
+    def test_copier_leaves_source_untouched(self):
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"contenu")
+
+        result = ps.transfer_file(src, self.dest_dir, set(), "copier")
+
+        self.assertEqual(result, "copied")
+        self.assertTrue(src.exists())
+        self.assertTrue((self.dest_dir / "photo.jpg").exists())
+
+    def test_deplacer_removes_source(self):
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"contenu")
+
+        result = ps.transfer_file(src, self.dest_dir, set(), "deplacer")
+
+        self.assertEqual(result, "moved")
+        self.assertFalse(src.exists())
+        self.assertTrue((self.dest_dir / "photo.jpg").exists())
+
+    def test_duplicate_is_not_copied(self):
+        (self.dest_dir / "existing.jpg").write_bytes(b"contenu")
+        existing_hashes = {ps.file_hash(self.dest_dir / "existing.jpg")}
+
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"contenu")
+
+        result = ps.transfer_file(src, self.dest_dir, existing_hashes, "copier")
+
+        self.assertEqual(result, "duplicate")
+        self.assertTrue(src.exists())
+        self.assertEqual(list(self.dest_dir.iterdir()), [self.dest_dir / "existing.jpg"])
+
+    def test_duplicate_is_still_removed_from_source_when_moving(self):
+        (self.dest_dir / "existing.jpg").write_bytes(b"contenu")
+        existing_hashes = {ps.file_hash(self.dest_dir / "existing.jpg")}
+
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"contenu")
+
+        result = ps.transfer_file(src, self.dest_dir, existing_hashes, "deplacer")
+
+        self.assertEqual(result, "duplicate")
+        self.assertFalse(src.exists())
+        self.assertEqual(list(self.dest_dir.iterdir()), [self.dest_dir / "existing.jpg"])
+
+
 class TestAggregateTree(unittest.TestCase):
     def setUp(self):
         self.tree = {
