@@ -178,6 +178,9 @@ def get_avi_creation_date(path: Path):
 ASF_HEADER_OBJECT_GUID = bytes.fromhex("3026b2758e66cf11a6d900aa0062ce6c")
 ASF_FILE_PROPERTIES_OBJECT_GUID = bytes.fromhex("a1dcab8c47a9cf118ee400c00c205365")
 
+ASF_MIN_OBJECT_SIZE = 24  # GUID (16 octets) + taille (8 octets) : plus petit objet ASF valide
+ASF_MAX_HEADER_OBJECTS = 1024  # largement au-dessus de ce qu'un en-tête ASF réel contient
+
 
 def get_wmv_creation_date(path: Path):
     """Lit la date de création dans l'objet "File Properties" d'un fichier WMV/ASF,
@@ -191,11 +194,11 @@ def get_wmv_creation_date(path: Path):
         if len(header) < 30 or header[0:16] != ASF_HEADER_OBJECT_GUID:
             return None
         header_object_size = int.from_bytes(header[16:24], "little")
-        num_objects = int.from_bytes(header[24:28], "little")
+        num_objects = min(int.from_bytes(header[24:28], "little"), ASF_MAX_HEADER_OBJECTS)
 
         offset = 30
         for _ in range(num_objects):
-            if offset + 24 > header_object_size:
+            if offset + ASF_MIN_OBJECT_SIZE > header_object_size:
                 break
             f.seek(offset)
             sub_header = f.read(24)
@@ -203,6 +206,10 @@ def get_wmv_creation_date(path: Path):
                 break
             guid = sub_header[0:16]
             size = int.from_bytes(sub_header[16:24], "little")
+            if size < ASF_MIN_OBJECT_SIZE:
+                # Taille d'objet incohérente (en-tête corrompu) : offset ne progresserait
+                # plus (ou plus assez), ce qui bouclerait sur place jusqu'à num_objects.
+                break
             if guid == ASF_FILE_PROPERTIES_OBJECT_GUID:
                 f.seek(offset + 24 + 24)  # en-tête (24) + File ID (16) + File Size (8)
                 raw = f.read(8)

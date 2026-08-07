@@ -150,6 +150,28 @@ class TestWmvCreationDate(unittest.TestCase):
 
         self.assertIsNone(vm.get_wmv_creation_date(path))
 
+    def test_terminates_quickly_when_a_sub_object_declares_a_size_of_zero(self):
+        # Régression : un sous-objet déclarant une taille de 0 ne fait plus avancer
+        # offset, ce qui bouclait sur place jusqu'à num_objects avant le correctif —
+        # potentiellement des milliards d'itérations pour un en-tête corrompu déclarant
+        # un nombre d'objets aberrant (ici 0xFFFFFFFF).
+        path = self.dir / "corrupt.wmv"
+        broken_sub_object = b"\x00" * 16 + struct.pack("<Q", 0)  # GUID bidon, taille déclarée 0
+        header_object_content = struct.pack("<IH", 0xFFFFFFFF, 0) + broken_sub_object
+        header = (
+            vm.ASF_HEADER_OBJECT_GUID
+            + struct.pack("<Q", 10_000_000)  # header_object_size très supérieur au fichier réel
+            + header_object_content
+        )
+        path.write_bytes(header)
+
+        start = time.time()
+        result = vm.get_wmv_creation_date(path)
+        elapsed = time.time() - start
+
+        self.assertIsNone(result)
+        self.assertLess(elapsed, MAX_SECONDS_LARGE_FILE)
+
 
 class TestMatroskaCreationDate(unittest.TestCase):
     def setUp(self):
