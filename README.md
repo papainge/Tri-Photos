@@ -18,31 +18,38 @@ src/photo_metadata.py   Lecture de la date EXIF des photos
 src/video_metadata.py   Lecture de la date de création des vidéos (MP4, AVI, WMV, MKV/WEBM)
 tests/                  Tests unitaires et de charge (un fichier par module de src/)
 packaging/              Scripts de génération des exécutables (build.bat, build_linux.sh)
-dist/                   Exécutables prêts à l'emploi (TriPhotos.exe, TriPhotos)
+dist/                   Sortie locale de build (généré, non versionné — voir Releases)
 run.bat / run.sh        Lancement depuis les sources (sans passer par un exécutable)
 ```
 
 ## Prérequis
 
-- **Windows** : aucun, si vous utilisez `dist\TriPhotos.exe` (voir ci-dessous).
-- **Linux (x86_64)** : aucun non plus, si vous utilisez `dist/TriPhotos` et que votre
-  distribution est assez récente (voir ci-dessous).
+- **Windows** : aucun, si vous téléchargez `TriPhotos.exe` depuis la
+  [page Releases](https://github.com/papainge/Tri-Photos/releases/latest) (voir
+  ci-dessous).
+- **Linux (x86_64)** : aucun non plus, si vous téléchargez `TriPhotos` depuis la même
+  page et que votre distribution est assez récente (voir ci-dessous).
 - **macOS**, ou pour reconstruire un exécutable : Python 3.9 ou plus récent :
   https://www.python.org/downloads/
   (cocher "Add python.exe to PATH" lors de l'installation sous Windows)
 
 ## Lancer l'application
 
-- **Windows** : double-cliquer sur `dist\TriPhotos.exe`. Aucun terminal ne s'affiche,
-  Python n'a pas besoin d'être installé.
-- **Linux (x86_64)** : `./dist/TriPhotos` (le rendre exécutable si besoin :
-  `chmod +x dist/TriPhotos`). Binaire autonome, Python n'a pas besoin d'être installé.
-  Construit sur une distribution récente (glibc récente) : s'il ne se lance pas sur une
-  distribution plus ancienne (erreur du type `GLIBC_2.xx not found`), utiliser `./run.sh`
-  à la place, ou reconstruire l'exécutable localement avec `packaging/build_linux.sh`.
-- **macOS** ou en cas de souci avec le binaire Linux fourni : `./run.sh` (crée
-  automatiquement un environnement virtuel `venv` et installe les dépendances au premier
-  lancement).
+Les exécutables Windows et Linux ne sont pas versionnés dans le dépôt (voir
+[Pourquoi pas de binaires dans le dépôt ?](#pourquoi-pas-de-binaires-dans-le-dépôt))
+mais publiés sur la [page Releases](https://github.com/papainge/Tri-Photos/releases/latest).
+
+- **Windows** : télécharger `TriPhotos.exe` puis double-cliquer dessus. Aucun terminal
+  ne s'affiche, Python n'a pas besoin d'être installé.
+- **Linux (x86_64)** : télécharger `TriPhotos`, le rendre exécutable
+  (`chmod +x TriPhotos`) puis le lancer (`./TriPhotos`). Binaire autonome, Python n'a pas
+  besoin d'être installé. Construit sur une distribution récente (glibc récente) : s'il
+  ne se lance pas sur une distribution plus ancienne (erreur du type
+  `GLIBC_2.xx not found`), utiliser `./run.sh` à la place, ou reconstruire l'exécutable
+  localement avec `packaging/build_linux.sh`.
+- **macOS** ou en cas de souci avec le binaire Linux fourni : cloner le dépôt et lancer
+  `./run.sh` (crée automatiquement un environnement virtuel `venv` et installe les
+  dépendances au premier lancement).
 
 ## Reconstruire TriPhotos.exe (Windows)
 
@@ -53,15 +60,13 @@ packaging\build.bat
 ```
 
 Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
-PyInstaller, puis génère `dist\TriPhotos.exe`.
+PyInstaller, puis génère `dist\TriPhotos.exe` (dossier local, non versionné).
 
 ## Reconstruire l'exécutable Linux
 
-`dist/TriPhotos` est déjà fourni. Pour le régénérer (après une modification de
-`src/media_sorter.py`, ou pour une distribution plus ancienne que celle utilisée pour le
-binaire fourni), il faut le reconstruire sur une machine Linux : pas de compilation
-croisée possible depuis Windows. Le module `tkinter` doit être installé au préalable
-(souvent absent par défaut) :
+Il faut le construire sur une machine Linux : pas de compilation croisée possible depuis
+Windows. Le module `tkinter` doit être installé au préalable (souvent absent par
+défaut) :
 
 ```bash
 sudo apt install python3-tk      # Debian / Ubuntu
@@ -76,7 +81,16 @@ Puis lancer :
 ```
 
 Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
-PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
+PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension, dossier local
+non versionné).
+
+## Pourquoi pas de binaires dans le dépôt ?
+
+Les exécutables (~20 Mo chacun) changent entièrement à chaque reconstruction : les
+committer directement gonfle l'historique git de façon irréversible (dizaines de Mo à
+chaque version, pour toujours). Ils sont donc uniquement attachés aux
+[Releases](https://github.com/papainge/Tri-Photos/releases) (une par version publiée),
+et `dist/` reste un simple dossier de build local, ignoré par git.
 
 ## Utilisation
 
