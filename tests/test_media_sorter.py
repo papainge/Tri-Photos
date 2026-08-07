@@ -3,7 +3,9 @@ import struct
 import sys
 import tempfile
 import threading
+import time
 import unittest
+import unittest.mock
 from datetime import datetime
 from pathlib import Path
 
@@ -160,6 +162,46 @@ class TestScanMedia(unittest.TestCase):
         tree = ps.scan_media(self.dir, cancel_event=threading.Event())
 
         self.assertEqual(ps.count_files(tree), 1)
+
+    def test_handles_many_files_correctly_when_parallelized(self):
+        # La lecture des dates est parallélisée sur plusieurs threads : on vérifie
+        # l'absence de conflit d'accès (résultats perdus, dates mélangées entre
+        # fichiers...) lors de la construction de l'arbre à partir des résultats.
+        expected_dates = {}
+        for i in range(200):
+            date = datetime(2020 + (i % 5), (i % 12) + 1, (i % 28) + 1)
+            path = self._make_png(f"photo_{i:03d}.png", date)
+            expected_dates[path] = date
+
+        tree = ps.scan_media(self.dir)["photos"]
+
+        self.assertEqual(ps.count_files(tree), 200)
+        for path, date in expected_dates.items():
+            year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
+            self.assertIn(path, tree[year][month][day])
+
+    def test_cancels_during_parallel_result_processing(self):
+        # Contrairement à test_raises_scan_cancelled_when_event_already_set (déclenché
+        # avant même de lister les fichiers), ce test vérifie le second point de
+        # vérification : pendant la récupération des résultats déjà lancés en parallèle.
+        for i in range(20):
+            self._make_png(f"photo_{i}.png", datetime(2024, 1, 1))
+        cancel_event = threading.Event()
+
+        original_get_media_date = ps.get_media_date
+
+        def slow_get_media_date(path):
+            time.sleep(0.05)
+            return original_get_media_date(path)
+
+        timer = threading.Timer(0.02, cancel_event.set)
+        timer.start()
+        try:
+            with unittest.mock.patch.object(ps, "get_media_date", side_effect=slow_get_media_date):
+                with self.assertRaises(ps.ScanCancelled):
+                    ps.scan_media(self.dir, cancel_event=cancel_event)
+        finally:
+            timer.cancel()
 
 
 class TestFileHash(unittest.TestCase):

@@ -3,6 +3,7 @@
 import hashlib
 import shutil
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -65,27 +66,48 @@ class ScanCancelled(Exception):
     """Levée par scan_media() quand cancel_event est déclenché en cours d'analyse."""
 
 
-def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None):
+def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None, max_workers: int = None):
     """Parcourt source_dir (récursivement par défaut, ou uniquement à sa racine) et
     regroupe photos et vidéos par catégorie ("photos" / "videos") puis par (année, mois,
     jour).
 
+    La lecture de la date (get_media_date, dominée par des I/O disque : ouverture de
+    fichier, lecture d'en-tête EXIF ou vidéo) est parallélisée sur plusieurs threads —
+    le nombre de fichiers ne dépend pas de la récursivité (un dossier plat peut tout
+    autant en contenir des milliers), donc le gain s'applique dans les deux cas.
+
     Si cancel_event est fourni et déclenché pendant l'analyse (par ex. depuis un autre
-    thread), lève ScanCancelled dès le fichier suivant plutôt que d'aller au bout.
+    thread), lève ScanCancelled dès que possible plutôt que d'aller au bout : pendant le
+    parcours du dossier, ou entre deux résultats une fois la lecture des dates lancée.
     """
     tree = {category: {} for category in CATEGORY_LABELS}
     entries = source_dir.rglob("*") if recursive else source_dir.glob("*")
+
+    candidates = []
     for path in entries:
         if cancel_event is not None and cancel_event.is_set():
             raise ScanCancelled()
         if not path.is_file():
             continue
         category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
-        if category is None:
-            continue
-        date = get_media_date(path)
-        year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
-        tree[category].setdefault(year, {}).setdefault(month, {}).setdefault(day, []).append(path)
+        if category is not None:
+            candidates.append((path, category))
+
+    if not candidates:
+        return tree
+
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    try:
+        future_to_candidate = {executor.submit(get_media_date, path): (path, category) for path, category in candidates}
+        for future in as_completed(future_to_candidate):
+            if cancel_event is not None and cancel_event.is_set():
+                raise ScanCancelled()
+            path, category = future_to_candidate[future]
+            date = future.result()
+            year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
+            tree[category].setdefault(year, {}).setdefault(month, {}).setdefault(day, []).append(path)
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
     return tree
 
 
