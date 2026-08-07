@@ -1,9 +1,11 @@
 # Tri de photos par date
 
-Application locale (Python + Tkinter) qui analyse un dossier de photos, propose une
-arborescence par date (Année, Année / Mois, ou Année / Mois / Jour, au choix) basée sur
-la date de prise de vue (EXIF, avec repli sur la date de modification du fichier), puis
-copie les photos dans un nouveau dossier selon cette arborescence.
+Application locale (Python + Tkinter) qui analyse un dossier de photos et vidéos,
+propose une arborescence par date (Année, Année / Mois, ou Année / Mois / Jour, au
+choix) basée sur la date de prise de vue (EXIF pour les photos, avec repli sur la date
+de modification du fichier), puis copie ou déplace les fichiers dans un nouveau dossier
+selon cette arborescence — avec la possibilité de séparer Photos et Vidéos à la racine
+de la destination.
 
 Fonctionne sous Windows, Linux et macOS.
 
@@ -55,23 +57,28 @@ PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
 
 ## Utilisation
 
-1. Cliquer sur **Choisir...** pour sélectionner le dossier contenant les photos à trier.
+1. Cliquer sur **Choisir...** pour sélectionner le dossier contenant les photos et
+   vidéos à trier.
 2. Choisir le **niveau de tri** souhaité : *Année*, *Année / Mois* ou
    *Année / Mois / Jour*. Les niveaux étant imbriqués, choisir *Jour* implique
    automatiquement le mois et l'année, etc. Ce choix peut être changé à tout moment,
    même après l'analyse : l'aperçu se met à jour immédiatement.
-3. Cliquer sur **Analyser** : l'arborescence correspondant au niveau choisi, avec le
-   nombre de photos à chaque niveau, s'affiche.
-4. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
+3. Cocher **Séparer Photos et Vidéos à la racine de la destination** si vous voulez deux
+   arborescences distinctes (`destination/Photos/...` et `destination/Vidéos/...`) au
+   lieu d'un classement mélangé par date (comportement par défaut). Ce choix peut aussi
+   être changé après l'analyse.
+4. Cliquer sur **Analyser** : l'arborescence correspondant aux choix ci-dessus, avec le
+   nombre de fichiers à chaque niveau, s'affiche.
+5. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
    l'arborescence.
-5. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou
+6. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou
    *Déplacer* (les originaux sont supprimés une fois transférés).
-6. Cliquer sur **Créer l'arborescence et copier/déplacer les photos**. Une copie (ou le
-   fichier déplacé) est placée dans le sous-dossier correspondant (par exemple
-   `destination/2024/08-Août/15/` au niveau *Jour*). Les photos déjà présentes dans le
-   dossier de destination (même contenu) sont détectées comme doublons : elles ne sont
-   pas dupliquées (et sont supprimées de la source en mode *Déplacer*) ; leur nombre est
-   indiqué dans le message final.
+7. Cliquer sur **Créer l'arborescence et copier/déplacer les fichiers**. Une copie (ou
+   le fichier déplacé) est placée dans le sous-dossier correspondant (par exemple
+   `destination/2024/08-Août/15/`, ou `destination/Photos/2024/08-Août/15/` si Photos et
+   Vidéos sont séparés). Les fichiers déjà présents dans le dossier de destination (même
+   contenu) sont détectés comme doublons : ils ne sont pas dupliqués (et sont supprimés
+   de la source en mode *Déplacer*) ; leur nombre est indiqué dans le message final.
 
 ## Tests
 
@@ -86,7 +93,9 @@ venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
 
 ## Formats supportés
 
-JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF.
+- **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF.
+- **Vidéos** : MP4, MOV, AVI, MKV, M4V, 3GP, WMV, MPG/MPEG, WEBM. Elles sont datées via
+  leur date de modification (Pillow ne lit pas les métadonnées vidéo).
 
 Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` :
 

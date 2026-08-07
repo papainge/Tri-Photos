@@ -23,6 +23,17 @@ IMAGE_EXTENSIONS = {
     ".heic", ".heif", ".webp",
 }
 
+VIDEO_EXTENSIONS = {
+    ".mp4", ".mov", ".avi", ".mkv", ".m4v", ".3gp", ".wmv", ".mpg", ".mpeg", ".webm",
+}
+
+CATEGORY_LABELS = {"photos": "Photos", "videos": "Vidéos"}
+
+MEDIA_CATEGORY_BY_EXTENSION = {
+    **{ext: "photos" for ext in IMAGE_EXTENSIONS},
+    **{ext: "videos" for ext in VIDEO_EXTENSIONS},
+}
+
 # Tags EXIF standards contenant une date, par ordre de préférence. DateTimeOriginal et
 # DateTimeDigitized sont rangés par l'appareil photo dans le sous-IFD Exif (et non dans
 # l'IFD0 renvoyé directement par Image.getexif()) : il faut passer par get_ifd() pour
@@ -33,9 +44,13 @@ EXIF_DATE_TIME_DIGITIZED = 36868
 EXIF_DATE_TIME = 306
 
 
-def get_photo_date(path: Path) -> datetime:
+def get_media_date(path: Path) -> datetime:
     """Renvoie la date de prise de vue (métadonnées EXIF) ou, à défaut, la date de
-    modification du fichier sur le disque."""
+    modification du fichier sur le disque.
+
+    Les vidéos ne portent pas ces tags EXIF (Pillow ne lit pas leurs métadonnées) :
+    elles sont donc toujours datées via leur date de modification.
+    """
     if path.suffix.lower() in {".jpg", ".jpeg", ".tiff", ".tif", ".heic", ".heif"}:
         try:
             with Image.open(path) as img:
@@ -53,15 +68,31 @@ def get_photo_date(path: Path) -> datetime:
     return datetime.fromtimestamp(path.stat().st_mtime)
 
 
-def scan_photos(source_dir: Path):
-    """Parcourt récursivement source_dir et regroupe les photos par (année, mois, jour)."""
-    tree = {}
-    files = [p for p in source_dir.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS]
-    for path in files:
-        date = get_photo_date(path)
+def scan_media(source_dir: Path):
+    """Parcourt récursivement source_dir et regroupe photos et vidéos par catégorie
+    ("photos" / "videos") puis par (année, mois, jour)."""
+    tree = {category: {} for category in CATEGORY_LABELS}
+    for path in source_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
+        if category is None:
+            continue
+        date = get_media_date(path)
         year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
-        tree.setdefault(year, {}).setdefault(month, {}).setdefault(day, []).append(path)
+        tree[category].setdefault(year, {}).setdefault(month, {}).setdefault(day, []).append(path)
     return tree
+
+
+def merge_media_trees(tree: dict) -> dict:
+    """Fusionne les arbres photos et vidéos en un seul arbre année/mois/jour."""
+    merged = {}
+    for category_tree in tree.values():
+        for year, months in category_tree.items():
+            for month, days in months.items():
+                for day, files in days.items():
+                    merged.setdefault(year, {}).setdefault(month, {}).setdefault(day, []).extend(files)
+    return merged
 
 
 MONTH_NAMES_FR = {
@@ -132,6 +163,42 @@ def count_files(node) -> int:
     return sum(count_files(v) for v in node.values())
 
 
+def build_display_tree(tree: dict, level: str, separate_media: bool) -> dict:
+    """Construit l'arbre à afficher dans l'aperçu, selon le niveau de tri et le choix
+    de séparer ou non Photos et Vidéos à la racine."""
+    if separate_media:
+        return {
+            CATEGORY_LABELS[category]: aggregate_tree(category_tree, level)
+            for category, category_tree in tree.items()
+            if count_files(category_tree) > 0
+        }
+    return aggregate_tree(merge_media_trees(tree), level)
+
+
+def build_destination_map(tree: dict, level: str, separate_media: bool) -> dict:
+    """Construit le mapping {chemin de dossiers : fichiers} prêt à être copié/déplacé,
+    selon le niveau de tri et le choix de séparer ou non Photos et Vidéos à la racine.
+    """
+    if separate_media:
+        sources = [
+            (CATEGORY_LABELS[category], category_tree)
+            for category, category_tree in tree.items()
+            if count_files(category_tree) > 0
+        ]
+    else:
+        sources = [(None, merge_media_trees(tree))]
+
+    result = {}
+    for category_label, category_tree in sources:
+        aggregated = aggregate_tree(category_tree, level)
+        for path_parts, files in flatten_tree(aggregated):
+            folder_names = path_parts_to_folder_names(path_parts)
+            if category_label:
+                folder_names = [category_label] + folder_names
+            result.setdefault(tuple(folder_names), []).extend(files)
+    return result
+
+
 def file_hash(path: Path, chunk_size: int = 65536) -> str:
     """Calcule le hash SHA-256 du contenu d'un fichier, pour détecter les doublons."""
     digest = hashlib.sha256()
@@ -187,6 +254,7 @@ class PhotoSorterApp:
         self.dest_dir = tk.StringVar()
         self.sort_level = tk.StringVar(value="jour")
         self.copy_mode = tk.StringVar(value="copier")
+        self.separate_media = tk.BooleanVar(value=False)
         self.tree_data = {}
 
         self._build_ui()
@@ -207,8 +275,15 @@ class PhotoSorterApp:
         for value in ("annee", "mois", "jour"):
             ttk.Radiobutton(
                 level_frame, text=SORT_LEVELS[value][0], value=value,
-                variable=self.sort_level, command=self._on_level_change,
+                variable=self.sort_level, command=self._on_options_change,
             ).pack(side="left", padx=(8, 0))
+
+        media_frame = ttk.Frame(self.root)
+        media_frame.pack(fill="x", **pad)
+        ttk.Checkbutton(
+            media_frame, text="Séparer Photos et Vidéos à la racine de la destination",
+            variable=self.separate_media, command=self._on_options_change,
+        ).pack(side="left")
 
         self.status_label = ttk.Label(self.root, text="Choisissez un dossier source, puis cliquez sur Analyser.")
         self.status_label.pack(fill="x", padx=8)
@@ -220,7 +295,7 @@ class PhotoSorterApp:
 
         self.treeview = ttk.Treeview(tree_frame, columns=("count",), show="tree headings")
         self.treeview.heading("#0", text="Arborescence")
-        self.treeview.heading("count", text="Nb photos")
+        self.treeview.heading("count", text="Nb fichiers")
         self.treeview.column("count", width=100, anchor="center")
         self.treeview.pack(side="left", fill="both", expand=True)
 
@@ -247,17 +322,17 @@ class PhotoSorterApp:
         ).pack(side="left", padx=(8, 0))
 
         self.create_button = ttk.Button(
-            self.root, text="Créer l'arborescence et copier les photos",
+            self.root, text="Créer l'arborescence et copier les fichiers",
             command=self.start_copy, state="disabled",
         )
         self.create_button.pack(pady=(0, 10))
 
     def _on_copy_mode_change(self):
         verb = "copier" if self.copy_mode.get() == "copier" else "déplacer"
-        self.create_button.config(text=f"Créer l'arborescence et {verb} les photos")
+        self.create_button.config(text=f"Créer l'arborescence et {verb} les fichiers")
 
     def choose_source(self):
-        path = filedialog.askdirectory(title="Choisir le dossier de photos à trier")
+        path = filedialog.askdirectory(title="Choisir le dossier de photos et vidéos à trier")
         if path:
             self.source_dir.set(path)
 
@@ -286,7 +361,7 @@ class PhotoSorterApp:
 
     def _scan_worker(self, source_path: Path):
         try:
-            tree = scan_photos(source_path)
+            tree = scan_media(source_path)
         except Exception as exc:
             self.root.after(0, self._scan_failed, exc)
             return
@@ -304,33 +379,35 @@ class PhotoSorterApp:
         self.tree_data = tree
         self._refresh_treeview()
 
-    def _on_level_change(self):
+    def _on_options_change(self):
         if self.tree_data:
             self._refresh_treeview()
 
     def _refresh_treeview(self):
         self.treeview.delete(*self.treeview.get_children())
-        aggregated = aggregate_tree(self.tree_data, self.sort_level.get())
-        total = count_files(aggregated)
-        self._populate_tree("", aggregated, depth=0)
+        separate = self.separate_media.get()
+        display_tree = build_display_tree(self.tree_data, self.sort_level.get(), separate)
+        total = count_files(display_tree)
+        month_depth = 2 if separate else 1
+        self._populate_tree("", display_tree, depth=0, month_depth=month_depth)
 
         if total == 0:
-            self.status_label.config(text="Aucune photo trouvée dans ce dossier.")
+            self.status_label.config(text="Aucune photo ou vidéo trouvée dans ce dossier.")
             self.create_button.config(state="disabled")
         else:
-            self.status_label.config(text=f"{total} photo(s) trouvée(s). Choisissez un dossier de destination pour les ranger.")
+            self.status_label.config(text=f"{total} fichier(s) trouvé(s). Choisissez un dossier de destination pour les ranger.")
             self.create_button.config(state="normal")
 
-    def _populate_tree(self, parent, node, depth):
+    def _populate_tree(self, parent, node, depth, month_depth):
         for key in sorted(node):
             value = node[key]
-            label = month_folder_name(key) if depth == 1 else key
+            label = month_folder_name(key) if depth == month_depth else key
             count = count_files(value)
             if isinstance(value, list):
                 self.treeview.insert(parent, "end", text=label, values=(count,), open=(depth == 0))
             else:
                 child_node = self.treeview.insert(parent, "end", text=label, values=(count,), open=(depth == 0))
-                self._populate_tree(child_node, value, depth + 1)
+                self._populate_tree(child_node, value, depth + 1, month_depth)
 
     def start_copy(self):
         dest = self.dest_dir.get().strip()
@@ -342,14 +419,14 @@ class PhotoSorterApp:
             return
 
         dest_path = Path(dest)
-        aggregated = aggregate_tree(self.tree_data, self.sort_level.get())
-        total = count_files(aggregated)
+        destination_map = build_destination_map(self.tree_data, self.sort_level.get(), self.separate_media.get())
+        total = sum(len(files) for files in destination_map.values())
         mode = self.copy_mode.get()
         if mode == "deplacer":
-            verb, warning = "Déplacer", "Les photos originales seront supprimées de leur emplacement d'origine."
+            verb, warning = "Déplacer", "Les fichiers originaux seront supprimés de leur emplacement d'origine."
         else:
-            verb, warning = "Copier", "Les photos originales ne seront pas modifiées (copie, pas déplacement)."
-        if not messagebox.askyesno("Confirmer", f"{verb} {total} photo(s) dans :\n{dest_path}\n\n{warning}"):
+            verb, warning = "Copier", "Les fichiers originaux ne seront pas modifiés (copie, pas déplacement)."
+        if not messagebox.askyesno("Confirmer", f"{verb} {total} fichier(s) dans :\n{dest_path}\n\n{warning}"):
             return
 
         self.create_button.config(state="disabled")
@@ -357,14 +434,14 @@ class PhotoSorterApp:
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.config(mode="determinate", maximum=total, value=0)
 
-        threading.Thread(target=self._copy_worker, args=(dest_path, aggregated, mode), daemon=True).start()
+        threading.Thread(target=self._copy_worker, args=(dest_path, destination_map, mode), daemon=True).start()
 
-    def _copy_worker(self, dest_path: Path, aggregated: dict, mode: str):
+    def _copy_worker(self, dest_path: Path, destination_map: dict, mode: str):
         done = 0
         duplicates = 0
         errors = []
-        for path_parts, files in flatten_tree(aggregated):
-            target_dir = dest_path.joinpath(*path_parts_to_folder_names(path_parts))
+        for folder_names, files in destination_map.items():
+            target_dir = dest_path.joinpath(*folder_names)
             try:
                 target_dir.mkdir(parents=True, exist_ok=True)
             except Exception as exc:
@@ -397,19 +474,19 @@ class PhotoSorterApp:
         self.create_button.config(state="normal")
         transferred = done - duplicates - len(errors)
         if mode == "deplacer":
-            action_past = "déplacée(s)"
+            action_past = "déplacé(s)"
             dup_text = f"{duplicates} doublon(s) supprimé(s) de la source"
         else:
-            action_past = "copiée(s)"
+            action_past = "copié(s)"
             dup_text = f"{duplicates} doublon(s) ignoré(s)"
         if errors:
-            self.status_label.config(text=f"Terminé avec {len(errors)} erreur(s) sur {done} photo(s), {dup_text}.")
+            self.status_label.config(text=f"Terminé avec {len(errors)} erreur(s) sur {done} fichier(s), {dup_text}.")
             messagebox.showwarning("Terminé avec erreurs", "\n".join(errors[:20]) + ("\n..." if len(errors) > 20 else ""))
         else:
-            self.status_label.config(text=f"Terminé : {transferred} photo(s) {action_past}, {dup_text}.")
+            self.status_label.config(text=f"Terminé : {transferred} fichier(s) {action_past}, {dup_text}.")
             messagebox.showinfo(
                 "Terminé",
-                f"{transferred} photo(s) {action_past} avec succès dans :\n{self.dest_dir.get()}\n\n"
+                f"{transferred} fichier(s) {action_past} avec succès dans :\n{self.dest_dir.get()}\n\n"
                 f"{dup_text} (déjà présent(s) dans le dossier de destination).",
             )
 

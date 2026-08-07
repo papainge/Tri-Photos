@@ -12,7 +12,7 @@ from PIL import ExifTags, Image
 import photo_sorter as ps
 
 
-class TestGetPhotoDate(unittest.TestCase):
+class TestGetMediaDate(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
@@ -24,7 +24,7 @@ class TestGetPhotoDate(unittest.TestCase):
         expected = datetime(2019, 3, 4, 8, 15, 0)
         os.utime(path, (expected.timestamp(), expected.timestamp()))
 
-        self.assertEqual(ps.get_photo_date(path), expected)
+        self.assertEqual(ps.get_media_date(path), expected)
 
     def _save_with_exif_date(self, path, tag_id, value, in_sub_ifd):
         img = Image.new("RGB", (2, 2), color="red")
@@ -45,22 +45,22 @@ class TestGetPhotoDate(unittest.TestCase):
         path = self.dir / "photo.jpg"
         self._save_with_exif_date(path, ps.EXIF_DATE_TIME_ORIGINAL, "2020:05:17 10:30:00", in_sub_ifd=True)
 
-        self.assertEqual(ps.get_photo_date(path), datetime(2020, 5, 17, 10, 30, 0))
+        self.assertEqual(ps.get_media_date(path), datetime(2020, 5, 17, 10, 30, 0))
 
     def test_falls_back_to_date_time_digitized(self):
         path = self.dir / "photo.jpg"
         self._save_with_exif_date(path, ps.EXIF_DATE_TIME_DIGITIZED, "2018:02:03 09:00:00", in_sub_ifd=True)
 
-        self.assertEqual(ps.get_photo_date(path), datetime(2018, 2, 3, 9, 0, 0))
+        self.assertEqual(ps.get_media_date(path), datetime(2018, 2, 3, 9, 0, 0))
 
     def test_falls_back_to_date_time_when_no_original_or_digitized(self):
         path = self.dir / "photo.jpg"
         self._save_with_exif_date(path, ps.EXIF_DATE_TIME, "2017:11:20 14:00:00", in_sub_ifd=False)
 
-        self.assertEqual(ps.get_photo_date(path), datetime(2017, 11, 20, 14, 0, 0))
+        self.assertEqual(ps.get_media_date(path), datetime(2017, 11, 20, 14, 0, 0))
 
 
-class TestScanPhotos(unittest.TestCase):
+class TestScanMedia(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
@@ -73,24 +73,31 @@ class TestScanPhotos(unittest.TestCase):
         os.utime(path, (date.timestamp(), date.timestamp()))
         return path
 
+    def _make_file(self, relative_path, date):
+        path = self.dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"contenu")
+        os.utime(path, (date.timestamp(), date.timestamp()))
+        return path
+
     def test_groups_by_year_month_day(self):
         p1 = self._make_png("a.png", datetime(2024, 1, 15))
         p2 = self._make_png("sub/b.png", datetime(2024, 1, 15))
         p3 = self._make_png("c.png", datetime(2024, 2, 1))
         p4 = self._make_png("d.png", datetime(2023, 12, 25))
 
-        tree = ps.scan_photos(self.dir)
+        tree = ps.scan_media(self.dir)["photos"]
 
         self.assertEqual(set(tree.keys()), {"2024", "2023"})
         self.assertEqual(sorted(tree["2024"]["01"]["15"]), sorted([p1, p2]))
         self.assertEqual(tree["2024"]["02"]["01"], [p3])
         self.assertEqual(tree["2023"]["12"]["25"], [p4])
 
-    def test_ignores_non_image_files(self):
+    def test_ignores_unsupported_files(self):
         self._make_png("a.png", datetime(2024, 1, 1))
-        (self.dir / "notes.txt").write_text("pas une photo")
+        (self.dir / "notes.txt").write_text("pas une photo ni une vidéo")
 
-        tree = ps.scan_photos(self.dir)
+        tree = ps.scan_media(self.dir)
 
         self.assertEqual(ps.count_files(tree), 1)
 
@@ -100,9 +107,18 @@ class TestScanPhotos(unittest.TestCase):
         self._make_png("n1/n2/c.png", datetime(2024, 1, 1))
         self._make_png("n1/n2/n3/d.png", datetime(2024, 1, 1))
 
-        tree = ps.scan_photos(self.dir)
+        tree = ps.scan_media(self.dir)
 
         self.assertEqual(ps.count_files(tree), 4)
+
+    def test_separates_photos_and_videos(self):
+        photo = self._make_png("a.png", datetime(2024, 1, 15))
+        video = self._make_file("b.mp4", datetime(2024, 1, 15))
+
+        tree = ps.scan_media(self.dir)
+
+        self.assertEqual(tree["photos"]["2024"]["01"]["15"], [photo])
+        self.assertEqual(tree["videos"]["2024"]["01"]["15"], [video])
 
 
 class TestFileHash(unittest.TestCase):
@@ -231,6 +247,73 @@ class TestAggregateTree(unittest.TestCase):
     def test_total_count_is_unchanged_by_level(self):
         for level in ("annee", "mois", "jour"):
             self.assertEqual(ps.count_files(ps.aggregate_tree(self.tree, level)), 4)
+
+
+class TestMergeMediaTrees(unittest.TestCase):
+    def test_merges_photos_and_videos_into_one_tree(self):
+        tree = {
+            "photos": {"2024": {"01": {"15": ["photo.jpg"]}}},
+            "videos": {"2024": {"01": {"15": ["video.mp4"]}}},
+        }
+
+        merged = ps.merge_media_trees(tree)
+
+        self.assertEqual(sorted(merged["2024"]["01"]["15"]), ["photo.jpg", "video.mp4"])
+
+
+class TestBuildDisplayTree(unittest.TestCase):
+    def setUp(self):
+        self.tree = {
+            "photos": {"2024": {"01": {"15": ["photo.jpg"]}}},
+            "videos": {"2024": {"01": {"15": ["video.mp4"]}}},
+        }
+
+    def test_mixed_when_not_separated(self):
+        display = ps.build_display_tree(self.tree, "jour", separate_media=False)
+
+        self.assertEqual(sorted(display["2024"]["01"]["15"]), ["photo.jpg", "video.mp4"])
+
+    def test_split_by_category_when_separated(self):
+        display = ps.build_display_tree(self.tree, "jour", separate_media=True)
+
+        self.assertEqual(set(display.keys()), {"Photos", "Vidéos"})
+        self.assertEqual(display["Photos"]["2024"]["01"]["15"], ["photo.jpg"])
+        self.assertEqual(display["Vidéos"]["2024"]["01"]["15"], ["video.mp4"])
+
+    def test_empty_category_omitted_when_separated(self):
+        tree = {"photos": {"2024": {"01": {"15": ["photo.jpg"]}}}, "videos": {}}
+
+        display = ps.build_display_tree(tree, "jour", separate_media=True)
+
+        self.assertEqual(set(display.keys()), {"Photos"})
+
+
+class TestBuildDestinationMap(unittest.TestCase):
+    def setUp(self):
+        self.tree = {
+            "photos": {"2024": {"08": {"15": ["photo.jpg"]}}},
+            "videos": {"2024": {"08": {"15": ["video.mp4"]}}},
+        }
+
+    def test_mixed_paths_when_not_separated(self):
+        dest_map = ps.build_destination_map(self.tree, "jour", separate_media=False)
+
+        self.assertEqual(
+            sorted(dest_map[("2024", "08-Août", "15")]),
+            ["photo.jpg", "video.mp4"],
+        )
+
+    def test_category_prefixes_path_when_separated(self):
+        dest_map = ps.build_destination_map(self.tree, "jour", separate_media=True)
+
+        self.assertEqual(dest_map[("Photos", "2024", "08-Août", "15")], ["photo.jpg"])
+        self.assertEqual(dest_map[("Vidéos", "2024", "08-Août", "15")], ["video.mp4"])
+
+    def test_respects_sort_level_when_separated(self):
+        dest_map = ps.build_destination_map(self.tree, "annee", separate_media=True)
+
+        self.assertEqual(dest_map[("Photos", "2024")], ["photo.jpg"])
+        self.assertEqual(dest_map[("Vidéos", "2024")], ["video.mp4"])
 
 
 class TestFlattenTree(unittest.TestCase):
