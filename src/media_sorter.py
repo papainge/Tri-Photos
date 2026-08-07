@@ -1,4 +1,4 @@
-"""Tri de photos par année/mois - interface graphique Tkinter (cross-platform)."""
+"""Tri de photos et vidéos par date - interface graphique Tkinter (cross-platform)."""
 
 import hashlib
 import os
@@ -608,7 +608,7 @@ def transfer_file(src_file: Path, target_dir: Path, existing_hashes: set, mode: 
     return "moved" if mode == "deplacer" else "copied"
 
 
-class PhotoSorterApp:
+class MediaSorterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Tri de photos par date")
@@ -865,7 +865,7 @@ class PhotoSorterApp:
 
 def main():
     root = tk.Tk()
-    app = PhotoSorterApp(root)
+    app = MediaSorterApp(root)
     root.mainloop()
 
 

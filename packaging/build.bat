@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0\.."
 
 where python >nul 2>nul
 if errorlevel 1 (
@@ -18,9 +18,9 @@ call venv\Scripts\activate.bat
 pip install -q -r requirements.txt
 pip install -q pyinstaller
 
-python _patch_pyinstaller_tkinter.py
+python packaging\_patch_pyinstaller_tkinter.py
 
-pyinstaller --noconfirm --onefile --windowed --name TriPhotos photo_sorter.py
+pyinstaller --noconfirm --onefile --windowed --name TriPhotos src\media_sorter.py
 
 echo.
 echo TriPhotos.exe genere dans dist\TriPhotos.exe

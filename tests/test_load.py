@@ -13,9 +13,9 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import photo_sorter as ps
+import media_sorter as ps
 
 # Marge large pour rester fiable sur une machine/CI lente, tout en détectant une vraie
 # régression de performance (lecture intégrale d'un fichier de centaines de Mo, boucle

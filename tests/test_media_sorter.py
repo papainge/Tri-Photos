@@ -6,11 +6,11 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from PIL import ExifTags, Image
 
-import photo_sorter as ps
+import media_sorter as ps
 
 
 class TestGetMediaDate(unittest.TestCase):

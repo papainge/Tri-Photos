@@ -17,5 +17,5 @@ if not exist venv (
 call venv\Scripts\activate.bat
 pip install -q -r requirements.txt
 
-start "" venv\Scripts\pythonw.exe photo_sorter.py
+start "" venv\Scripts\pythonw.exe src\media_sorter.py
 exit

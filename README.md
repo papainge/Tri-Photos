@@ -9,6 +9,16 @@ de la destination.
 
 Fonctionne sous Windows, Linux et macOS.
 
+## Structure du projet
+
+```
+src/media_sorter.py    Code source de l'application (module unique)
+tests/                 Tests unitaires et de charge
+packaging/             Scripts de génération des exécutables (build.bat, build_linux.sh)
+dist/                  Exécutables prêts à l'emploi (TriPhotos.exe, TriPhotos)
+run.bat / run.sh       Lancement depuis les sources (sans passer par un exécutable)
+```
+
 ## Prérequis
 
 - **Windows** : aucun, si vous utilisez `dist\TriPhotos.exe` (voir ci-dessous).
@@ -26,17 +36,17 @@ Fonctionne sous Windows, Linux et macOS.
   `chmod +x dist/TriPhotos`). Binaire autonome, Python n'a pas besoin d'être installé.
   Construit sur une distribution récente (glibc récente) : s'il ne se lance pas sur une
   distribution plus ancienne (erreur du type `GLIBC_2.xx not found`), utiliser `./run.sh`
-  à la place, ou reconstruire l'exécutable localement avec `build_linux.sh`.
+  à la place, ou reconstruire l'exécutable localement avec `packaging/build_linux.sh`.
 - **macOS** ou en cas de souci avec le binaire Linux fourni : `./run.sh` (crée
   automatiquement un environnement virtuel `venv` et installe les dépendances au premier
   lancement).
 
 ## Reconstruire TriPhotos.exe (Windows)
 
-Après une modification de `photo_sorter.py`, régénérer l'exécutable avec :
+Après une modification de `src\media_sorter.py`, régénérer l'exécutable avec :
 
 ```
-build.bat
+packaging\build.bat
 ```
 
 Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
@@ -45,7 +55,7 @@ PyInstaller, puis génère `dist\TriPhotos.exe`.
 ## Reconstruire l'exécutable Linux
 
 `dist/TriPhotos` est déjà fourni. Pour le régénérer (après une modification de
-`photo_sorter.py`, ou pour une distribution plus ancienne que celle utilisée pour le
+`src/media_sorter.py`, ou pour une distribution plus ancienne que celle utilisée pour le
 binaire fourni), il faut le reconstruire sur une machine Linux : pas de compilation
 croisée possible depuis Windows. Le module `tkinter` doit être installé au préalable
 (souvent absent par défaut) :
@@ -59,7 +69,7 @@ sudo pacman -S tk                # Arch
 Puis lancer :
 
 ```bash
-./build_linux.sh
+./packaging/build_linux.sh
 ```
 
 Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
@@ -138,4 +148,4 @@ pip install pillow-heif
 (`TriPhotos.exe` et le script `run.sh` n'incluent que Pillow par défaut ; sans
 `pillow-heif`, les fichiers HEIC sont classés selon leur date de modification au lieu
 de la date EXIF. Pour l'inclure dans l'exécutable Windows, l'ajouter à
-`requirements.txt` puis relancer `build.bat`).
+`requirements.txt` puis relancer `packaging\build.bat`).
