@@ -115,8 +115,10 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
    de grandeur avant de lancer l'analyse complète, potentiellement plus longue. La case
    **Inclure les sous-dossiers** (cochée par défaut) détermine si l'analyse descend
    dans les sous-dossiers ou se limite à la racine du dossier choisi ; la décocher met
-   aussi à jour ce comptage rapide immédiatement, et est prise en compte pour
-   l'analyse elle-même au moment de cliquer sur **Analyser**.
+   aussi à jour ce comptage rapide immédiatement. Contrairement au niveau de tri et à
+   la séparation Photos/Vidéos (voir ci-dessous), ce réglage ne peut pas se contenter
+   de réorganiser l'arborescence déjà analysée : la changer après une analyse affiche
+   un rappel invitant à recliquer sur **Analyser** pour l'appliquer.
 2. Choisir le **niveau de tri** souhaité : *Année*, *Année / Mois* ou
    *Année / Mois / Jour*. Les niveaux étant imbriqués, choisir *Jour* implique
    automatiquement le mois et l'année, etc. Ce choix peut être changé à tout moment,

@@ -557,7 +557,7 @@ class MediaSorterApp:
         self.recursive_frame.pack(fill="x", **pad)
         ttk.Checkbutton(
             self.recursive_frame, text="Inclure les sous-dossiers",
-            variable=self.recursive, command=self._update_pre_scan_count,
+            variable=self.recursive, command=self._on_recursive_change,
         ).pack(side="left")
 
         self.pre_scan_label = ttk.Label(self.root, foreground="#555555")
@@ -656,6 +656,19 @@ class MediaSorterApp:
         if path:
             self.source_dir.set(path)
             self._update_pre_scan_count()
+
+    def _on_recursive_change(self):
+        # Contrairement au niveau de tri et à la séparation Photos/Vidéos, ce réglage
+        # ne peut pas se contenter de ré-agréger l'arborescence déjà analysée : il
+        # change l'ensemble des fichiers à considérer, ce qui suppose une nouvelle
+        # analyse. Le comptage rapide se met à jour immédiatement pour donner un aperçu
+        # de l'effet du changement ; si une arborescence est déjà affichée, on prévient
+        # explicitement qu'elle ne reflète plus le réglage courant.
+        self._update_pre_scan_count()
+        if self.tree_data:
+            self.status_label.config(
+                text="Nouveau réglage de récursivité : cliquez sur Analyser pour l'appliquer à l'arborescence."
+            )
 
     def _update_pre_scan_count(self):
         source = self.source_dir.get().strip()

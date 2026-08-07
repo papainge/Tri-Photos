@@ -247,6 +247,38 @@ class TestPreScanCount(AppTestCase):
         self.assertEqual(self.app.pre_scan_label.cget("text"), "")
 
 
+class TestOnRecursiveChange(AppTestCase):
+    def test_warns_that_a_new_scan_is_needed_when_a_tree_is_already_displayed(self):
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": ["a.jpg"]}}}, "videos": {}}
+
+        self.app._on_recursive_change()
+
+        self.assertEqual(
+            self.app.status_label.cget("text"),
+            "Nouveau réglage de récursivité : cliquez sur Analyser pour l'appliquer à l'arborescence.",
+        )
+
+    def test_does_not_warn_when_nothing_has_been_analysed_yet(self):
+        self.app.tree_data = {}
+        self.app.status_label.config(text="valeur figée")
+
+        self.app._on_recursive_change()
+
+        self.assertEqual(self.app.status_label.cget("text"), "valeur figée")
+
+    def test_updates_the_quick_count_immediately(self):
+        self._make_photo("sous_dossier/a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.recursive.set(False)
+
+        run_and_wait(
+            self.root, [(10, self.app._on_recursive_change)],
+            lambda: self.app.pre_scan_label.cget("text") != "Comptage des fichiers...",
+        )
+
+        self.assertEqual(self.app.pre_scan_label.cget("text"), "Aucune photo ou vidéo trouvée dans ce dossier.")
+
+
 class TestOnCopyModeChange(AppTestCase):
     def test_button_text_reflects_selected_mode(self):
         self.assertEqual(self.app.create_button.cget("text"), "Créer l'arborescence et copier les fichiers")
