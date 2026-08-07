@@ -2,6 +2,7 @@ import os
 import struct
 import sys
 import tempfile
+import threading
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -137,6 +138,28 @@ class TestScanMedia(unittest.TestCase):
 
         self.assertEqual(tree["photos"]["2024"]["01"]["15"], [photo])
         self.assertEqual(tree["videos"]["2024"]["01"]["15"], [video])
+
+    def test_raises_scan_cancelled_when_event_already_set(self):
+        self._make_png("a.png", datetime(2024, 1, 1))
+        cancel_event = threading.Event()
+        cancel_event.set()
+
+        with self.assertRaises(ps.ScanCancelled):
+            ps.scan_media(self.dir, cancel_event=cancel_event)
+
+    def test_not_cancelled_without_event(self):
+        self._make_png("a.png", datetime(2024, 1, 1))
+
+        tree = ps.scan_media(self.dir, cancel_event=None)
+
+        self.assertEqual(ps.count_files(tree), 1)
+
+    def test_not_cancelled_when_event_unset(self):
+        self._make_png("a.png", datetime(2024, 1, 1))
+
+        tree = ps.scan_media(self.dir, cancel_event=threading.Event())
+
+        self.assertEqual(ps.count_files(tree), 1)
 
 
 class TestFileHash(unittest.TestCase):

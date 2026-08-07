@@ -61,13 +61,23 @@ def get_media_date(path: Path) -> datetime:
     return datetime.fromtimestamp(path.stat().st_mtime)
 
 
-def scan_media(source_dir: Path, recursive: bool = True):
+class ScanCancelled(Exception):
+    """Levée par scan_media() quand cancel_event est déclenché en cours d'analyse."""
+
+
+def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None):
     """Parcourt source_dir (récursivement par défaut, ou uniquement à sa racine) et
     regroupe photos et vidéos par catégorie ("photos" / "videos") puis par (année, mois,
-    jour)."""
+    jour).
+
+    Si cancel_event est fourni et déclenché pendant l'analyse (par ex. depuis un autre
+    thread), lève ScanCancelled dès le fichier suivant plutôt que d'aller au bout.
+    """
     tree = {category: {} for category in CATEGORY_LABELS}
     entries = source_dir.rglob("*") if recursive else source_dir.glob("*")
     for path in entries:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ScanCancelled()
         if not path.is_file():
             continue
         category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
@@ -252,6 +262,7 @@ class MediaSorterApp:
         self.separate_media = tk.BooleanVar(value=False)
         self.recursive = tk.BooleanVar(value=True)
         self.tree_data = {}
+        self._scan_cancel_event = None
 
         self._build_ui()
 
@@ -263,7 +274,12 @@ class MediaSorterApp:
         ttk.Label(src_frame, text="Dossier source :").pack(side="left")
         ttk.Entry(src_frame, textvariable=self.source_dir).pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(src_frame, text="Choisir...", command=self.choose_source).pack(side="left")
-        ttk.Button(src_frame, text="Analyser", command=self.start_scan).pack(side="left", padx=(6, 0))
+        self.scan_button = ttk.Button(src_frame, text="Analyser", command=self.start_scan)
+        self.scan_button.pack(side="left", padx=(6, 0))
+        self.cancel_scan_button = ttk.Button(
+            src_frame, text="Annuler", command=self.cancel_scan, state="disabled",
+        )
+        self.cancel_scan_button.pack(side="left", padx=(6, 0))
 
         recursive_frame = ttk.Frame(self.root)
         recursive_frame.pack(fill="x", **pad)
@@ -358,31 +374,60 @@ class MediaSorterApp:
             return
 
         self.create_button.config(state="disabled")
+        self.scan_button.config(state="disabled")
+        self.cancel_scan_button.config(state="normal")
         self.treeview.delete(*self.treeview.get_children())
         self.total_label.config(text="")
         self.status_label.config(text="Analyse en cours...")
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.start(10)
 
-        threading.Thread(target=self._scan_worker, args=(source_path, self.recursive.get()), daemon=True).start()
+        self._scan_cancel_event = threading.Event()
+        threading.Thread(
+            target=self._scan_worker,
+            args=(source_path, self.recursive.get(), self._scan_cancel_event),
+            daemon=True,
+        ).start()
 
-    def _scan_worker(self, source_path: Path, recursive: bool):
+    def cancel_scan(self):
+        if self._scan_cancel_event is not None:
+            self._scan_cancel_event.set()
+        self.cancel_scan_button.config(state="disabled")
+        self.status_label.config(text="Annulation en cours...")
+
+    def _scan_worker(self, source_path: Path, recursive: bool, cancel_event: threading.Event):
         try:
-            tree = scan_media(source_path, recursive=recursive)
+            tree = scan_media(source_path, recursive=recursive, cancel_event=cancel_event)
+        except ScanCancelled:
+            self.root.after(0, self._scan_cancelled)
+            return
         except Exception as exc:
             self.root.after(0, self._scan_failed, exc)
             return
         self.root.after(0, self._scan_done, tree)
 
+    def _reset_scan_buttons(self):
+        self._scan_cancel_event = None
+        self.scan_button.config(state="normal")
+        self.cancel_scan_button.config(state="disabled")
+
+    def _scan_cancelled(self):
+        self.progress.stop()
+        self.progress.pack_forget()
+        self._reset_scan_buttons()
+        self.status_label.config(text="Analyse annulée.")
+
     def _scan_failed(self, exc):
         self.progress.stop()
         self.progress.pack_forget()
+        self._reset_scan_buttons()
         self.status_label.config(text="Erreur lors de l'analyse.")
         messagebox.showerror("Erreur", str(exc))
 
     def _scan_done(self, tree):
         self.progress.stop()
         self.progress.pack_forget()
+        self._reset_scan_buttons()
         self.tree_data = tree
         self._refresh_treeview()
 
