@@ -4,7 +4,7 @@ import hashlib
 import os
 import shutil
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import tkinter as tk
@@ -43,15 +43,109 @@ EXIF_DATE_TIME_ORIGINAL = 36867
 EXIF_DATE_TIME_DIGITIZED = 36868
 EXIF_DATE_TIME = 306
 
+# Conteneurs vidéo basés sur l'ISO Base Media File Format / QuickTime (boîtes
+# ftyp/moov/mvhd) : leur date de création se lit sans dépendance externe. Les autres
+# formats vidéo (AVI, MKV, WMV, WEBM...) n'ont pas ce format de boîtes et retombent sur
+# la date de modification du fichier.
+MP4_LIKE_EXTENSIONS = {".mp4", ".mov", ".m4v", ".3gp"}
+
+# Écart, en secondes, entre l'époque QuickTime/Mac (1904-01-01) et l'époque Unix
+# (1970-01-01), utilisé pour convertir le "creation_time" de l'atome mvhd.
+MP4_EPOCH = datetime(1904, 1, 1)
+
+
+def _iter_mp4_boxes(data: bytes, start: int, end: int):
+    """Itère les boîtes ISO-BMFF/QuickTime (type, début, fin du contenu) dans data[start:end]."""
+    offset = start
+    while offset + 8 <= end:
+        size = int.from_bytes(data[offset:offset + 4], "big")
+        box_type = data[offset + 4:offset + 8].decode("ascii", errors="replace")
+        header_size = 8
+        if size == 1:
+            if offset + 16 > end:
+                break
+            size = int.from_bytes(data[offset + 8:offset + 16], "big")
+            header_size = 16
+        elif size == 0:
+            size = end - offset
+        if size < header_size or offset + size > end:
+            break
+        yield box_type, offset + header_size, offset + size
+        offset += size
+
+
+def get_mp4_creation_date(path: Path):
+    """Lit la date de création dans l'atome "mvhd" d'un fichier MP4/MOV (boîte "moov"),
+    sans dépendance externe. Renvoie None si elle est absente ou invalide.
+
+    "mdat" (les données audio/vidéo, potentiellement énormes) est ignoré sans être lu :
+    seul son en-tête est parcouru pour sauter directement à la boîte suivante.
+    """
+    file_size = path.stat().st_size
+    moov_data = None
+    with open(path, "rb") as f:
+        offset = 0
+        while offset + 8 <= file_size:
+            header = f.read(8)
+            if len(header) < 8:
+                break
+            size = int.from_bytes(header[0:4], "big")
+            box_type = header[4:8].decode("ascii", errors="replace")
+            header_size = 8
+            if size == 1:
+                size = int.from_bytes(f.read(8), "big")
+                header_size = 16
+            elif size == 0:
+                size = file_size - offset
+            if size < header_size:
+                break
+            if box_type == "moov":
+                moov_data = f.read(size - header_size)
+                break
+            f.seek(offset + size)
+            offset += size
+
+    if not moov_data:
+        return None
+
+    mvhd = next((b for b in _iter_mp4_boxes(moov_data, 0, len(moov_data)) if b[0] == "mvhd"), None)
+    if mvhd is None:
+        return None
+    _, start, end = mvhd
+    if start >= len(moov_data):
+        return None
+
+    version = moov_data[start]
+    if version == 1:
+        if start + 12 > end:
+            return None
+        creation_time = int.from_bytes(moov_data[start + 4:start + 12], "big")
+    else:
+        if start + 8 > end:
+            return None
+        creation_time = int.from_bytes(moov_data[start + 4:start + 8], "big")
+
+    if creation_time <= 0:
+        return None
+    try:
+        date = MP4_EPOCH + timedelta(seconds=creation_time)
+    except OverflowError:
+        return None
+    if not (1990 <= date.year <= datetime.now().year + 1):
+        return None
+    return date
+
 
 def get_media_date(path: Path) -> datetime:
-    """Renvoie la date de prise de vue (métadonnées EXIF) ou, à défaut, la date de
-    modification du fichier sur le disque.
+    """Renvoie la date de prise de vue/création (métadonnées EXIF ou vidéo) ou, à
+    défaut, la date de modification du fichier sur le disque.
 
-    Les vidéos ne portent pas ces tags EXIF (Pillow ne lit pas leurs métadonnées) :
-    elles sont donc toujours datées via leur date de modification.
+    Seules les vidéos au format ISO-BMFF/QuickTime (MP4, MOV, M4V, 3GP) portent des
+    métadonnées lisibles ici ; les autres conteneurs vidéo (AVI, MKV, WMV, WEBM...) sont
+    toujours datés via leur date de modification.
     """
-    if path.suffix.lower() in {".jpg", ".jpeg", ".tiff", ".tif", ".heic", ".heif"}:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".tiff", ".tif", ".heic", ".heif"}:
         try:
             with Image.open(path) as img:
                 exif = img.getexif()
@@ -63,6 +157,13 @@ def get_media_date(path: Path) -> datetime:
                 )
                 if raw:
                     return datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")
+        except Exception:
+            pass
+    elif suffix in MP4_LIKE_EXTENSIONS:
+        try:
+            date = get_mp4_creation_date(path)
+            if date is not None:
+                return date
         except Exception:
             pass
     return datetime.fromtimestamp(path.stat().st_mtime)

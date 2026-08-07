@@ -1,8 +1,9 @@
 import os
+import struct
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -58,6 +59,54 @@ class TestGetMediaDate(unittest.TestCase):
         self._save_with_exif_date(path, ps.EXIF_DATE_TIME, "2017:11:20 14:00:00", in_sub_ifd=False)
 
         self.assertEqual(ps.get_media_date(path), datetime(2017, 11, 20, 14, 0, 0))
+
+    def _write_fake_mp4(self, path, creation_time, version=0, box_type="mvhd"):
+        if version == 1:
+            mvhd_content = bytes([1]) + b"\x00\x00\x00" + struct.pack(">QQI", creation_time, 0, 600) + struct.pack(">Q", 0)
+        else:
+            mvhd_content = bytes([0]) + b"\x00\x00\x00" + struct.pack(">III", creation_time, 0, 600) + struct.pack(">I", 0)
+        mvhd = struct.pack(">I", 8 + len(mvhd_content)) + box_type.encode("ascii") + mvhd_content
+        moov = struct.pack(">I", 8 + len(mvhd)) + b"moov" + mvhd
+        ftyp_content = b"isom" + struct.pack(">I", 0) + b"isomiso2mp41"
+        ftyp = struct.pack(">I", 8 + len(ftyp_content)) + b"ftyp" + ftyp_content
+        path.write_bytes(ftyp + moov)
+
+    def test_uses_mp4_creation_date_version_0(self):
+        path = self.dir / "video.mp4"
+        expected = datetime(2023, 6, 15, 12, 0, 0)
+        creation_time = int((expected - ps.MP4_EPOCH).total_seconds())
+        self._write_fake_mp4(path, creation_time, version=0)
+
+        wrong = datetime(1999, 1, 1)
+        os.utime(path, (wrong.timestamp(), wrong.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def test_uses_mp4_creation_date_version_1_64bit(self):
+        path = self.dir / "video.mov"
+        expected = datetime(2021, 2, 3, 4, 5, 6)
+        creation_time = int((expected - ps.MP4_EPOCH).total_seconds())
+        self._write_fake_mp4(path, creation_time, version=1)
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def test_mp4_falls_back_to_mtime_when_creation_time_is_zero(self):
+        path = self.dir / "video.mp4"
+        self._write_fake_mp4(path, creation_time=0)
+
+        expected = datetime(2019, 3, 4, 8, 15, 0)
+        os.utime(path, (expected.timestamp(), expected.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
+
+    def test_unsupported_video_container_falls_back_to_mtime(self):
+        path = self.dir / "video.avi"
+        path.write_bytes(b"RIFF....AVI LIST....")
+
+        expected = datetime(2020, 7, 1, 10, 0, 0)
+        os.utime(path, (expected.timestamp(), expected.timestamp()))
+
+        self.assertEqual(ps.get_media_date(path), expected)
 
 
 class TestScanMedia(unittest.TestCase):

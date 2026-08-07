@@ -94,8 +94,11 @@ venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
 ## Formats supportés
 
 - **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF.
-- **Vidéos** : MP4, MOV, AVI, MKV, M4V, 3GP, WMV, MPG/MPEG, WEBM. Elles sont datées via
-  leur date de modification (Pillow ne lit pas les métadonnées vidéo).
+- **Vidéos** : MP4, MOV, AVI, MKV, M4V, 3GP, WMV, MPG/MPEG, WEBM. Pour les formats
+  MP4/MOV/M4V/3GP (boîte `moov`/`mvhd`), la date de création embarquée dans le fichier
+  est lue directement, sans dépendance externe. Les autres conteneurs (AVI, MKV, WMV,
+  WEBM...) n'ont pas ce format de métadonnées et sont datés via la date de modification
+  du fichier.
 
 Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` :
 
