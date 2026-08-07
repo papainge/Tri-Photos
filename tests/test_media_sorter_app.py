@@ -390,6 +390,30 @@ class TestStartCopyValidation(AppTestCase):
         self.assertEqual(str(self.app.create_button.cget("state")), "normal")
         self.assertEqual(list(self.dest_dir.rglob("*.jpg")), [])
 
+    def test_errors_when_dest_dir_equals_source_dir(self):
+        photo = self._make_photo("a.jpg")
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.dest_dir.set(str(self.src_dir))
+
+        self.app.start_copy()
+
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
+
+    def test_errors_when_dest_dir_is_nested_inside_source_dir(self):
+        photo = self._make_photo("a.jpg")
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        nested_dest = self.src_dir / "sorted"
+        nested_dest.mkdir()
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.dest_dir.set(str(nested_dest))
+
+        self.app.start_copy()
+
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
+
 
 class TestCopyLifecycle(AppTestCase):
     def test_successful_copy_transfers_files_and_shows_summary(self):

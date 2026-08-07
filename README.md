@@ -113,7 +113,9 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
    prend malgré tout trop de temps, le bouton **Annuler** (à côté d'Analyser) l'interrompt
    à la volée.
 5. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
-   l'arborescence.
+   l'arborescence. Ce dossier ne peut pas être le dossier source, ni un de ses
+   sous-dossiers (refusé au moment de lancer la copie, pour éviter de copier les
+   fichiers dans le dossier en cours d'analyse).
 6. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou
    *Déplacer* (les originaux sont supprimés une fois transférés).
 7. Cliquer sur **Créer l'arborescence et copier/déplacer les fichiers**. Une copie (ou

@@ -630,6 +630,19 @@ class MediaSorterApp:
             return
 
         dest_path = Path(dest)
+        source = self.source_dir.get().strip()
+        if source:
+            source_path = Path(source).resolve()
+            resolved_dest = dest_path.resolve()
+            if resolved_dest == source_path or resolved_dest.is_relative_to(source_path):
+                messagebox.showerror(
+                    "Dossier de destination invalide",
+                    "Le dossier de destination ne peut pas être le dossier source, ni un de ses "
+                    "sous-dossiers : cela copierait les fichiers dans le dossier en cours d'analyse "
+                    "(risque de doublons en cascade, voire de boucle en mode récursif).",
+                )
+                return
+
         destination_map = build_destination_map(self.tree_data, self.sort_level.get(), self.separate_media.get())
         total = sum(len(files) for files in destination_map.values())
         mode = self.copy_mode.get()
