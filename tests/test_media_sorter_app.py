@@ -529,6 +529,25 @@ class TestCopyLifecycle(AppTestCase):
         self.assertEqual(str(self.app.cancel_copy_button.cget("state")), "disabled")
         self.assertEqual(len(list(self.dest_dir.rglob("*.jpg"))), 2)
 
+    def test_copy_error_shows_message_and_resets_buttons(self):
+        # Régression : avant correctif, seule CopyCancelled était rattrapée dans
+        # _copy_worker — toute autre exception (dossier de destination devenu
+        # inaccessible en cours de route, etc.) tuait le thread silencieusement et
+        # laissait l'interface figée (bouton Annuler actif, "Créer" désactivé).
+        photo = self._make_photo("a.jpg")
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app.dest_dir.set(str(self.dest_dir))
+
+        with unittest.mock.patch.object(ms, "copy_files", side_effect=RuntimeError("boom")):
+            run_and_wait(
+                self.root, [(10, self.app.start_copy)],
+                lambda: str(self.app.create_button.cget("state")) == "normal",
+            )
+
+        self.assertEqual(self.app.status_label.cget("text"), "Erreur lors de la copie.")
+        self.assertTrue(any(m[0] == "showerror" for m in self.messages))
+        self.assertEqual(str(self.app.cancel_copy_button.cget("state")), "disabled")
+
 
 class TestScanCopyMutualExclusion(AppTestCase):
     def test_start_copy_is_a_noop_while_scan_is_running(self):

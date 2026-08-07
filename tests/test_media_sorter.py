@@ -426,6 +426,30 @@ class TestCopyFiles(unittest.TestCase):
         self.assertEqual(duplicates, 0)
         self.assertEqual(len(errors), 3)
 
+    def test_index_failure_records_errors_for_that_folder_but_keeps_processing_others(self):
+        # Régression : mkdir() peut réussir puis lister le dossier échouer juste après
+        # (partage réseau débranché entre les deux, permissions changées) — ce dossier ne
+        # doit pas faire échouer toute la copie, seuls ses fichiers sont comptés en erreur.
+        broken_files = self._make_src_files(["a.jpg", "b.jpg"])
+        ok_files = self._make_src_files(["c.jpg"])
+        destination_map = {("broken",): broken_files, ("ok",): ok_files}
+
+        original = ps.build_pending_size_index
+
+        def fail_for_broken_only(target_dir):
+            if target_dir.name == "broken":
+                raise OSError("partage réseau inaccessible")
+            return original(target_dir)
+
+        with unittest.mock.patch.object(ps, "build_pending_size_index", side_effect=fail_for_broken_only):
+            done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
+
+        self.assertEqual(done, 3)
+        self.assertEqual(duplicates, 0)
+        self.assertEqual(len(errors), 2)
+        self.assertEqual([p.name for p in (self.dest_dir / "ok").iterdir()], ["c.jpg"])
+        self.assertFalse((self.dest_dir / "broken").exists() and any((self.dest_dir / "broken").iterdir()))
+
     def test_on_progress_called_once_per_file_with_running_total(self):
         files = self._make_src_files(["a.jpg", "b.jpg", "c.jpg"])
         destination_map = {("2024",): files}

@@ -376,7 +376,12 @@ def copy_files(
         target_dir = dest_path.joinpath(*folder_names)
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
+            pending_by_size = build_pending_size_index(target_dir)
         except Exception as exc:
+            # Un dossier de destination inaccessible (échec de mkdir, ou accessible au
+            # moment du mkdir mais plus au moment de lister son contenu — partage réseau
+            # débranché entre les deux) ne doit pas abandonner toute la copie : seuls les
+            # fichiers de CE dossier sont comptés en erreur, les autres continuent.
             for src_file in files:
                 if cancel_event is not None and cancel_event.is_set():
                     raise CopyCancelled(done, duplicates, errors)
@@ -386,7 +391,6 @@ def copy_files(
                     on_progress(done)
             continue
 
-        pending_by_size = build_pending_size_index(target_dir)
         hashed_by_size = {}
 
         for src_file in files:
@@ -728,6 +732,9 @@ class MediaSorterApp:
             done, duplicates, errors = exc.args
             self.root.after(0, self._copy_cancelled, done, duplicates, errors, mode)
             return
+        except Exception as exc:
+            self.root.after(0, self._copy_failed, exc)
+            return
         self.root.after(0, self._copy_done, done, duplicates, errors, mode)
 
     def _reset_copy_buttons(self):
@@ -742,6 +749,12 @@ class MediaSorterApp:
         transferred = done - duplicates - len(errors)
         action_past = "déplacé(s)" if mode == "deplacer" else "copié(s)"
         self.status_label.config(text=f"Annulé : {transferred} fichier(s) {action_past} avant l'arrêt.")
+
+    def _copy_failed(self, exc):
+        self.progress.pack_forget()
+        self._reset_copy_buttons()
+        self.status_label.config(text="Erreur lors de la copie.")
+        messagebox.showerror("Erreur", str(exc))
 
     def _update_progress(self, done):
         self.progress.config(value=done)
