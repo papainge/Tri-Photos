@@ -298,6 +298,15 @@ class TestScanMedia(unittest.TestCase):
 
         self.assertEqual(ps.count_files(tree), 4)
 
+    def test_non_recursive_ignores_subfolders(self):
+        self._make_png("a.png", datetime(2024, 1, 1))
+        self._make_png("n1/b.png", datetime(2024, 1, 1))
+        self._make_png("n1/n2/c.png", datetime(2024, 1, 1))
+
+        tree = ps.scan_media(self.dir, recursive=False)
+
+        self.assertEqual(ps.count_files(tree), 1)
+
     def test_separates_photos_and_videos(self):
         photo = self._make_png("a.png", datetime(2024, 1, 15))
         video = self._make_file("b.mp4", datetime(2024, 1, 15))

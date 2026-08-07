@@ -58,7 +58,9 @@ PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
 ## Utilisation
 
 1. Cliquer sur **Choisir...** pour sélectionner le dossier contenant les photos et
-   vidéos à trier.
+   vidéos à trier. La case **Inclure les sous-dossiers** (cochée par défaut) détermine
+   si l'analyse descend dans les sous-dossiers ou se limite à la racine du dossier
+   choisi ; ce choix est pris en compte au moment de cliquer sur **Analyser**.
 2. Choisir le **niveau de tri** souhaité : *Année*, *Année / Mois* ou
    *Année / Mois / Jour*. Les niveaux étant imbriqués, choisir *Jour* implique
    automatiquement le mois et l'année, etc. Ce choix peut être changé à tout moment,

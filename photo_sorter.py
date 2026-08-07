@@ -430,11 +430,13 @@ def get_media_date(path: Path) -> datetime:
     return datetime.fromtimestamp(path.stat().st_mtime)
 
 
-def scan_media(source_dir: Path):
-    """Parcourt récursivement source_dir et regroupe photos et vidéos par catégorie
-    ("photos" / "videos") puis par (année, mois, jour)."""
+def scan_media(source_dir: Path, recursive: bool = True):
+    """Parcourt source_dir (récursivement par défaut, ou uniquement à sa racine) et
+    regroupe photos et vidéos par catégorie ("photos" / "videos") puis par (année, mois,
+    jour)."""
     tree = {category: {} for category in CATEGORY_LABELS}
-    for path in source_dir.rglob("*"):
+    entries = source_dir.rglob("*") if recursive else source_dir.glob("*")
+    for path in entries:
         if not path.is_file():
             continue
         category = MEDIA_CATEGORY_BY_EXTENSION.get(path.suffix.lower())
@@ -617,6 +619,7 @@ class PhotoSorterApp:
         self.sort_level = tk.StringVar(value="jour")
         self.copy_mode = tk.StringVar(value="copier")
         self.separate_media = tk.BooleanVar(value=False)
+        self.recursive = tk.BooleanVar(value=True)
         self.tree_data = {}
 
         self._build_ui()
@@ -630,6 +633,13 @@ class PhotoSorterApp:
         ttk.Entry(src_frame, textvariable=self.source_dir).pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(src_frame, text="Choisir...", command=self.choose_source).pack(side="left")
         ttk.Button(src_frame, text="Analyser", command=self.start_scan).pack(side="left", padx=(6, 0))
+
+        recursive_frame = ttk.Frame(self.root)
+        recursive_frame.pack(fill="x", **pad)
+        ttk.Checkbutton(
+            recursive_frame, text="Inclure les sous-dossiers",
+            variable=self.recursive,
+        ).pack(side="left")
 
         level_frame = ttk.Frame(self.root)
         level_frame.pack(fill="x", **pad)
@@ -719,11 +729,11 @@ class PhotoSorterApp:
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.start(10)
 
-        threading.Thread(target=self._scan_worker, args=(source_path,), daemon=True).start()
+        threading.Thread(target=self._scan_worker, args=(source_path, self.recursive.get()), daemon=True).start()
 
-    def _scan_worker(self, source_path: Path):
+    def _scan_worker(self, source_path: Path, recursive: bool):
         try:
-            tree = scan_media(source_path)
+            tree = scan_media(source_path, recursive=recursive)
         except Exception as exc:
             self.root.after(0, self._scan_failed, exc)
             return
