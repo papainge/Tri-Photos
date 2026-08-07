@@ -258,25 +258,73 @@ def unique_destination(dest_dir: Path, filename: str) -> Path:
         i += 1
 
 
-def transfer_file(src_file: Path, target_dir: Path, existing_hashes: set, mode: str) -> str:
+def build_pending_size_index(target_dir: Path) -> dict:
+    """Indexe par taille (en octets) les fichiers déjà présents dans target_dir, sans les
+    hasher. Utilisé par transfer_file() avec un dict "hashed_by_size" (initialement
+    vide) pour ne calculer un hash SHA-256 que lorsqu'un autre fichier de taille
+    identique apparaît réellement : la plupart des fichiers n'ont pas de doublon de
+    taille identique, ce qui évite l'essentiel du hachage — en particulier coûteux pour
+    de grosses vidéos, à l'inverse des parseurs de date qui évitent déjà soigneusement
+    de les lire en entier.
+    """
+    index = {}
+    for existing_file in target_dir.iterdir():
+        if existing_file.is_file():
+            try:
+                size = existing_file.stat().st_size
+            except OSError:
+                continue
+            index.setdefault(size, []).append(existing_file)
+    return index
+
+
+def transfer_file(
+    src_file: Path, target_dir: Path, pending_by_size: dict, hashed_by_size: dict, mode: str
+) -> str:
     """Copie ou déplace src_file vers target_dir, sauf si son contenu s'y trouve déjà.
+
+    pending_by_size (voir build_pending_size_index) et hashed_by_size (dict {taille:
+    {hash, ...}}, à initialiser vide) forment ensemble l'index des fichiers déjà connus
+    dans target_dir. src_file n'est haché que si un autre fichier de sa taille a déjà
+    été vu (existant ou transféré plus tôt dans la même opération) ; dans ce cas, les
+    candidats de cette taille encore en attente sont hachés à leur tour, une seule fois.
 
     En mode "deplacer", un doublon est tout de même supprimé de la source puisqu'une
     copie de son contenu existe déjà à destination. Renvoie "duplicate", "copied" ou
     "moved".
     """
-    src_hash = file_hash(src_file)
-    if src_hash in existing_hashes:
-        if mode == "deplacer":
-            src_file.unlink()
-        return "duplicate"
+    try:
+        size = src_file.stat().st_size
+    except OSError:
+        size = None
+
+    if size is not None and size in pending_by_size:
+        for candidate in pending_by_size.pop(size):
+            try:
+                hashed_by_size.setdefault(size, set()).add(file_hash(candidate))
+            except OSError:
+                pass
+
+    src_hash = None
+    if size is not None and hashed_by_size.get(size):
+        src_hash = file_hash(src_file)
+        if src_hash in hashed_by_size[size]:
+            if mode == "deplacer":
+                src_file.unlink()
+            return "duplicate"
 
     dst_file = unique_destination(target_dir, src_file.name)
     if mode == "deplacer":
         shutil.move(str(src_file), str(dst_file))
     else:
         shutil.copy2(src_file, dst_file)
-    existing_hashes.add(src_hash)
+
+    if size is not None:
+        if src_hash is not None:
+            hashed_by_size[size].add(src_hash)
+        else:
+            pending_by_size.setdefault(size, []).append(dst_file)
+
     return "moved" if mode == "deplacer" else "copied"
 
 
@@ -541,20 +589,18 @@ class MediaSorterApp:
             try:
                 target_dir.mkdir(parents=True, exist_ok=True)
             except Exception as exc:
-                errors.append(f"{target_dir}: {exc}")
+                for src_file in files:
+                    errors.append(f"{src_file}: {exc}")
+                    done += 1
+                    self.root.after(0, self._update_progress, done)
                 continue
 
-            existing_hashes = set()
-            for existing_file in target_dir.iterdir():
-                if existing_file.is_file():
-                    try:
-                        existing_hashes.add(file_hash(existing_file))
-                    except Exception:
-                        pass
+            pending_by_size = build_pending_size_index(target_dir)
+            hashed_by_size = {}
 
             for src_file in files:
                 try:
-                    if transfer_file(src_file, target_dir, existing_hashes, mode) == "duplicate":
+                    if transfer_file(src_file, target_dir, pending_by_size, hashed_by_size, mode) == "duplicate":
                         duplicates += 1
                 except Exception as exc:
                     errors.append(f"{src_file}: {exc}")

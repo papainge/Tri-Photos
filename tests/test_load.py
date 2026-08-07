@@ -110,21 +110,24 @@ class TestDuplicateDetectionLoad(unittest.TestCase):
         for i in range(existing_count):
             (self.dest_dir / f"existing_{i:05d}.jpg").write_bytes(f"contenu-{i}".encode())
 
+        # Construire l'index par taille ne fait que des stat(), jamais de hachage complet :
+        # ça doit rester très rapide même sur un dossier de destination déjà bien rempli.
         start = time.time()
-        existing_hashes = {ps.file_hash(p) for p in self.dest_dir.iterdir() if p.is_file()}
-        elapsed_hash = time.time() - start
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        elapsed_index = time.time() - start
 
-        self.assertEqual(len(existing_hashes), existing_count)
-        self.assertLess(elapsed_hash, MAX_SECONDS_MANY_FILES)
+        self.assertEqual(sum(len(v) for v in pending_by_size.values()), existing_count)
+        self.assertLess(elapsed_index, MAX_SECONDS_LARGE_FILE)
 
+        hashed_by_size = {}
         duplicate_src = self.src_dir / "dup.jpg"
-        duplicate_src.write_bytes(b"contenu-42")  # même contenu que existing_00042.jpg
+        duplicate_src.write_bytes(b"contenu-42")  # même taille et contenu que existing_00042.jpg
         new_src = self.src_dir / "new.jpg"
-        new_src.write_bytes(b"contenu-totalement-nouveau")
+        new_src.write_bytes(b"contenu totalement nouveau, et de taille unique dans ce dossier")
 
         start = time.time()
-        dup_result = ps.transfer_file(duplicate_src, self.dest_dir, existing_hashes, "copier")
-        new_result = ps.transfer_file(new_src, self.dest_dir, existing_hashes, "copier")
+        dup_result = ps.transfer_file(duplicate_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+        new_result = ps.transfer_file(new_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
         elapsed_transfer = time.time() - start
 
         self.assertEqual(dup_result, "duplicate")

@@ -253,11 +253,15 @@ class TestTransferFile(unittest.TestCase):
         self.src_dir.mkdir()
         self.dest_dir.mkdir()
 
+    def _empty_index(self):
+        return ps.build_pending_size_index(self.dest_dir), {}
+
     def test_copier_leaves_source_untouched(self):
         src = self.src_dir / "photo.jpg"
         src.write_bytes(b"contenu")
+        pending_by_size, hashed_by_size = self._empty_index()
 
-        result = ps.transfer_file(src, self.dest_dir, set(), "copier")
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
 
         self.assertEqual(result, "copied")
         self.assertTrue(src.exists())
@@ -266,8 +270,9 @@ class TestTransferFile(unittest.TestCase):
     def test_deplacer_removes_source(self):
         src = self.src_dir / "photo.jpg"
         src.write_bytes(b"contenu")
+        pending_by_size, hashed_by_size = self._empty_index()
 
-        result = ps.transfer_file(src, self.dest_dir, set(), "deplacer")
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "deplacer")
 
         self.assertEqual(result, "moved")
         self.assertFalse(src.exists())
@@ -275,12 +280,13 @@ class TestTransferFile(unittest.TestCase):
 
     def test_duplicate_is_not_copied(self):
         (self.dest_dir / "existing.jpg").write_bytes(b"contenu")
-        existing_hashes = {ps.file_hash(self.dest_dir / "existing.jpg")}
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        hashed_by_size = {}
 
         src = self.src_dir / "photo.jpg"
-        src.write_bytes(b"contenu")
+        src.write_bytes(b"contenu")  # même taille et même contenu que existing.jpg
 
-        result = ps.transfer_file(src, self.dest_dir, existing_hashes, "copier")
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
 
         self.assertEqual(result, "duplicate")
         self.assertTrue(src.exists())
@@ -288,16 +294,67 @@ class TestTransferFile(unittest.TestCase):
 
     def test_duplicate_is_still_removed_from_source_when_moving(self):
         (self.dest_dir / "existing.jpg").write_bytes(b"contenu")
-        existing_hashes = {ps.file_hash(self.dest_dir / "existing.jpg")}
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        hashed_by_size = {}
 
         src = self.src_dir / "photo.jpg"
         src.write_bytes(b"contenu")
 
-        result = ps.transfer_file(src, self.dest_dir, existing_hashes, "deplacer")
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "deplacer")
 
         self.assertEqual(result, "duplicate")
         self.assertFalse(src.exists())
-        self.assertEqual(list(self.dest_dir.iterdir()), [self.dest_dir / "existing.jpg"])
+
+    def test_same_size_but_different_content_is_not_a_duplicate(self):
+        # Même taille (7 octets) qu'existing.jpg, mais contenu différent : ne doit pas
+        # être pris pour un doublon même si le hachage est déclenché par la collision
+        # de taille.
+        (self.dest_dir / "existing.jpg").write_bytes(b"aaaaaaa")
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        hashed_by_size = {}
+
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"bbbbbbb")
+
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+
+        self.assertEqual(result, "copied")
+        self.assertTrue((self.dest_dir / "photo.jpg").exists())
+
+    def test_never_hashes_files_with_a_unique_size(self):
+        # Aucun autre fichier de cette taille : ni le fichier existant, ni le nouveau
+        # ne doivent être hachés (hashed_by_size doit rester vide).
+        (self.dest_dir / "existing.jpg").write_bytes(b"1")
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        hashed_by_size = {}
+
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"22")  # taille différente (2 octets vs 1)
+
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+
+        self.assertEqual(result, "copied")
+        self.assertEqual(hashed_by_size, {})
+
+    def test_hashes_lazily_only_once_a_size_collision_occurs(self):
+        (self.dest_dir / "existing.jpg").write_bytes(b"contenu-a")  # 9 octets
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        hashed_by_size = {}
+
+        # Une deuxième source de taille différente : toujours aucun hachage.
+        other_size_src = self.src_dir / "other_size.jpg"
+        other_size_src.write_bytes(b"court")
+        ps.transfer_file(other_size_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+        self.assertEqual(hashed_by_size, {})
+
+        # Une source de même taille (9 octets) que existing.jpg déclenche enfin le hachage
+        # des deux (l'existant, désormais promu, et la nouvelle source).
+        same_size_src = self.src_dir / "same_size.jpg"
+        same_size_src.write_bytes(b"contenu-b")
+        result = ps.transfer_file(same_size_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+
+        self.assertEqual(result, "copied")
+        self.assertEqual(len(hashed_by_size.get(9, set())), 2)
 
 
 class TestAggregateTree(unittest.TestCase):
