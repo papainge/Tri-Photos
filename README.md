@@ -66,7 +66,7 @@ PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
    l'arborescence.
 5. Cliquer sur **Créer l'arborescence et copier les photos**. Les photos originales ne
    sont pas modifiées : une copie est placée dans le sous-dossier correspondant (par
-   exemple `destination/ANNÉE/MOIS/JOUR/` au niveau *Jour*). Les photos déjà présentes
+   exemple `destination/2024/08-Août/15/` au niveau *Jour*). Les photos déjà présentes
    dans le dossier de destination (même contenu) sont détectées comme doublons et ne
    sont pas copiées ; leur nombre est indiqué dans le message final.
 

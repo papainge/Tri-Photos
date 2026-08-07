@@ -165,5 +165,29 @@ class TestFlattenTree(unittest.TestCase):
         self.assertEqual(result[("2023",)], ["b"])
 
 
+class TestMonthFolderName(unittest.TestCase):
+    def test_prefixes_month_with_its_french_name(self):
+        self.assertEqual(ps.month_folder_name("01"), "01-Janvier")
+        self.assertEqual(ps.month_folder_name("08"), "08-Août")
+
+    def test_unknown_month_falls_back_to_raw_value(self):
+        self.assertEqual(ps.month_folder_name("13"), "13-13")
+
+
+class TestPathPartsToFolderNames(unittest.TestCase):
+    def test_dresses_up_month_component_when_present(self):
+        self.assertEqual(
+            ps.path_parts_to_folder_names(("2024", "08", "15")),
+            ["2024", "08-Août", "15"],
+        )
+        self.assertEqual(
+            ps.path_parts_to_folder_names(("2024", "01")),
+            ["2024", "01-Janvier"],
+        )
+
+    def test_leaves_year_only_path_untouched(self):
+        self.assertEqual(ps.path_parts_to_folder_names(("2024",)), ["2024"])
+
+
 if __name__ == "__main__":
     unittest.main()

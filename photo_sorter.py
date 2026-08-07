@@ -67,6 +67,19 @@ SORT_LEVELS = {
 }
 
 
+def month_folder_name(month: str) -> str:
+    """Formate un mois ("01") en nom de dossier ("01-Janvier")."""
+    return f"{month}-{MONTH_NAMES_FR.get(month, month)}"
+
+
+def path_parts_to_folder_names(path_parts):
+    """Convertit un chemin (année, mois, jour) en noms de dossiers, en habillant le mois."""
+    parts = list(path_parts)
+    if len(parts) >= 2:
+        parts[1] = month_folder_name(parts[1])
+    return parts
+
+
 def aggregate_tree(tree: dict, level: str) -> dict:
     """Regroupe l'arbre complet (année/mois/jour) selon le niveau de tri choisi.
 
@@ -262,7 +275,7 @@ class PhotoSorterApp:
     def _populate_tree(self, parent, node, depth):
         for key in sorted(node):
             value = node[key]
-            label = f"{key} - {MONTH_NAMES_FR.get(key, key)}" if depth == 1 else key
+            label = month_folder_name(key) if depth == 1 else key
             count = count_files(value)
             if isinstance(value, list):
                 self.treeview.insert(parent, "end", text=label, values=(count,), open=(depth == 0))
@@ -301,7 +314,7 @@ class PhotoSorterApp:
         duplicates = 0
         errors = []
         for path_parts, files in flatten_tree(aggregated):
-            target_dir = dest_path.joinpath(*path_parts)
+            target_dir = dest_path.joinpath(*path_parts_to_folder_names(path_parts))
             try:
                 target_dir.mkdir(parents=True, exist_ok=True)
             except Exception as exc:
