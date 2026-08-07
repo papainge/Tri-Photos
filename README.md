@@ -91,6 +91,14 @@ venv\Scripts\python -m unittest discover -s tests -v   # Windows
 venv/bin/python -m unittest discover -s tests -v        # Linux / macOS
 ```
 
+`tests/test_load.py` ajoute des tests de charge : plusieurs milliers de fichiers
+répartis sur des dizaines de dossiers/dates (`scan_media`, agrégation, détection de
+doublons), et des fichiers vidéo de centaines de Mo (générés en fichiers creux/sparse
+pour rester rapides à créer) pour vérifier que chaque parseur de métadonnées vidéo saute
+bien par-dessus les données audio/vidéo sans jamais les lire — le temps d'exécution est
+borné et ne doit pas dépendre de la taille du fichier. L'ensemble de la suite (tests
+unitaires + charge) s'exécute en quelques secondes.
+
 ## Formats supportés
 
 - **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF. La date EXIF (DateTimeOriginal,
