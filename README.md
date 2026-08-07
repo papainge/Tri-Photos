@@ -93,7 +93,8 @@ PyInstaller, puis génère `dist/TriPhotos` (binaire ELF, sans extension).
    lieu d'un classement mélangé par date (comportement par défaut). Ce choix peut aussi
    être changé après l'analyse.
 4. Cliquer sur **Analyser** : l'arborescence correspondant aux choix ci-dessus, avec le
-   nombre de fichiers à chaque niveau, s'affiche.
+   nombre de fichiers à chaque niveau, s'affiche. Le total (avec la répartition
+   photos/vidéos) reste visible au-dessus de l'arborescence pendant toute l'opération.
 5. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
    l'arborescence.
 6. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou

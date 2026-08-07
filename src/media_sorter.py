@@ -293,6 +293,9 @@ class MediaSorterApp:
 
         self.progress = ttk.Progressbar(self.root, mode="indeterminate")
 
+        self.total_label = ttk.Label(self.root, text="", font=("TkDefaultFont", 9, "bold"))
+        self.total_label.pack(fill="x", padx=8)
+
         tree_frame = ttk.Frame(self.root)
         tree_frame.pack(fill="both", expand=True, **pad)
 
@@ -356,6 +359,7 @@ class MediaSorterApp:
 
         self.create_button.config(state="disabled")
         self.treeview.delete(*self.treeview.get_children())
+        self.total_label.config(text="")
         self.status_label.config(text="Analyse en cours...")
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.start(10)
@@ -395,9 +399,15 @@ class MediaSorterApp:
         self._populate_tree("", display_tree, depth=0, month_depth=month_depth)
 
         if total == 0:
+            self.total_label.config(text="")
             self.status_label.config(text="Aucune photo ou vidéo trouvée dans ce dossier.")
             self.create_button.config(state="disabled")
         else:
+            photo_count = count_files(self.tree_data.get("photos", {}))
+            video_count = count_files(self.tree_data.get("videos", {}))
+            self.total_label.config(
+                text=f"Total : {total} fichier(s)  ({photo_count} photo(s), {video_count} vidéo(s))"
+            )
             self.status_label.config(text=f"{total} fichier(s) trouvé(s). Choisissez un dossier de destination pour les ranger.")
             self.create_button.config(state="normal")
 
