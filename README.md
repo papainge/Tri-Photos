@@ -12,16 +12,24 @@ Fonctionne sous Windows, Linux et macOS.
 ## Prérequis
 
 - **Windows** : aucun, si vous utilisez `dist\TriPhotos.exe` (voir ci-dessous).
-- **Linux / macOS**, ou pour reconstruire l'exécutable Windows : Python 3.9 ou plus
-  récent : https://www.python.org/downloads/
+- **Linux (x86_64)** : aucun non plus, si vous utilisez `dist/TriPhotos` et que votre
+  distribution est assez récente (voir ci-dessous).
+- **macOS**, ou pour reconstruire un exécutable : Python 3.9 ou plus récent :
+  https://www.python.org/downloads/
   (cocher "Add python.exe to PATH" lors de l'installation sous Windows)
 
 ## Lancer l'application
 
 - **Windows** : double-cliquer sur `dist\TriPhotos.exe`. Aucun terminal ne s'affiche,
   Python n'a pas besoin d'être installé.
-- **Linux / macOS** : `./run.sh` (crée automatiquement un environnement virtuel `venv`
-  et installe les dépendances au premier lancement).
+- **Linux (x86_64)** : `./dist/TriPhotos` (le rendre exécutable si besoin :
+  `chmod +x dist/TriPhotos`). Binaire autonome, Python n'a pas besoin d'être installé.
+  Construit sur une distribution récente (glibc récente) : s'il ne se lance pas sur une
+  distribution plus ancienne (erreur du type `GLIBC_2.xx not found`), utiliser `./run.sh`
+  à la place, ou reconstruire l'exécutable localement avec `build_linux.sh`.
+- **macOS** ou en cas de souci avec le binaire Linux fourni : `./run.sh` (crée
+  automatiquement un environnement virtuel `venv` et installe les dépendances au premier
+  lancement).
 
 ## Reconstruire TriPhotos.exe (Windows)
 
@@ -34,11 +42,13 @@ build.bat
 Ce script crée/mets à jour l'environnement virtuel, installe les dépendances ainsi que
 PyInstaller, puis génère `dist\TriPhotos.exe`.
 
-## Générer un exécutable Linux
+## Reconstruire l'exécutable Linux
 
-Un exécutable autonome pour Linux se construit uniquement sur une machine Linux (pas
-de compilation croisée depuis Windows). Le module `tkinter` doit être installé au
-préalable (souvent absent par défaut) :
+`dist/TriPhotos` est déjà fourni. Pour le régénérer (après une modification de
+`photo_sorter.py`, ou pour une distribution plus ancienne que celle utilisée pour le
+binaire fourni), il faut le reconstruire sur une machine Linux : pas de compilation
+croisée possible depuis Windows. Le module `tkinter` doit être installé au préalable
+(souvent absent par défaut) :
 
 ```bash
 sudo apt install python3-tk      # Debian / Ubuntu
