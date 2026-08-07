@@ -251,6 +251,47 @@ class TestFileHash(unittest.TestCase):
         self.assertNotEqual(ps.file_hash(p1), ps.file_hash(p2))
 
 
+class TestPartialFileHash(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.dir = Path(self.tmpdir.name)
+
+    def test_identical_content_same_partial_hash(self):
+        p1 = self.dir / "a.bin"
+        p2 = self.dir / "b.bin"
+        p1.write_bytes(b"hello world")
+        p2.write_bytes(b"hello world")
+
+        self.assertEqual(ps.partial_file_hash(p1), ps.partial_file_hash(p2))
+
+    def test_different_content_different_partial_hash(self):
+        p1 = self.dir / "a.bin"
+        p2 = self.dir / "b.bin"
+        p1.write_bytes(b"hello world")
+        p2.write_bytes(b"goodbye world")
+
+        self.assertNotEqual(ps.partial_file_hash(p1), ps.partial_file_hash(p2))
+
+    def test_ignores_middle_of_large_files_beyond_the_sample_window(self):
+        # C'est précisément ce qui rend le hash partiel bon marché sur de gros
+        # fichiers (vidéos) : seuls le début et la fin sont lus, jamais le milieu.
+        p1 = self.dir / "a.bin"
+        p2 = self.dir / "b.bin"
+        p1.write_bytes(b"A" * 10 + b"milieu-1" + b"Z" * 10)
+        p2.write_bytes(b"A" * 10 + b"milieu-2" + b"Z" * 10)
+
+        self.assertEqual(ps.partial_file_hash(p1, sample_size=10), ps.partial_file_hash(p2, sample_size=10))
+
+    def test_detects_difference_in_the_tail_of_a_large_file(self):
+        p1 = self.dir / "a.bin"
+        p2 = self.dir / "b.bin"
+        p1.write_bytes(b"A" * 10 + b"milieu" + b"Z" * 10)
+        p2.write_bytes(b"A" * 10 + b"milieu" + b"Y" * 10)
+
+        self.assertNotEqual(ps.partial_file_hash(p1, sample_size=10), ps.partial_file_hash(p2, sample_size=10))
+
+
 class TestUniqueDestination(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -360,25 +401,70 @@ class TestTransferFile(unittest.TestCase):
         self.assertEqual(result, "copied")
         self.assertEqual(hashed_by_size, {})
 
-    def test_hashes_lazily_only_once_a_size_collision_occurs(self):
+    def test_size_collision_alone_does_not_trigger_a_full_hash(self):
+        # Régression : une collision de taille ne doit déclencher qu'un hash partiel
+        # (bon marché) — le hash complet (coûteux, en particulier pour de grosses
+        # vidéos) ne doit intervenir que si le hash partiel coïncide aussi. Simule le
+        # cas des dashcams/caméras à segments de taille fixe, où de nombreux fichiers
+        # non dupliqués partagent la même taille exacte.
+        (self.dest_dir / "existing.jpg").write_bytes(b"aaaaaaa")
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        hashed_by_size = {}
+
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"bbbbbbb")  # même taille (7 octets), contenu différent
+
+        with unittest.mock.patch.object(ps, "file_hash", side_effect=ps.file_hash) as full_hash:
+            result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+
+        self.assertEqual(result, "copied")
+        full_hash.assert_not_called()
+
+    def test_detects_duplicate_after_an_earlier_same_size_different_content_file(self):
+        # Un premier "faux positif" de taille (contenu différent, donc hash partiel
+        # différent) ne doit pas empêcher de détecter un vrai doublon plus tard pour
+        # la même taille.
         (self.dest_dir / "existing.jpg").write_bytes(b"contenu-a")  # 9 octets
         pending_by_size = ps.build_pending_size_index(self.dest_dir)
         hashed_by_size = {}
 
-        # Une deuxième source de taille différente : toujours aucun hachage.
-        other_size_src = self.src_dir / "other_size.jpg"
-        other_size_src.write_bytes(b"court")
-        ps.transfer_file(other_size_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
-        self.assertEqual(hashed_by_size, {})
+        different_content_src = self.src_dir / "different.jpg"
+        different_content_src.write_bytes(b"contenu-b")  # même taille, contenu différent
+        result1 = ps.transfer_file(different_content_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+        self.assertEqual(result1, "copied")
 
-        # Une source de même taille (9 octets) que existing.jpg déclenche enfin le hachage
-        # des deux (l'existant, désormais promu, et la nouvelle source).
-        same_size_src = self.src_dir / "same_size.jpg"
-        same_size_src.write_bytes(b"contenu-b")
-        result = ps.transfer_file(same_size_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+        duplicate_src = self.src_dir / "duplicate.jpg"
+        duplicate_src.write_bytes(b"contenu-a")  # même taille ET même contenu que existing.jpg
+        result2 = ps.transfer_file(duplicate_src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
 
-        self.assertEqual(result, "copied")
-        self.assertEqual(len(hashed_by_size.get(9, set())), 2)
+        self.assertEqual(result2, "duplicate")
+
+    def test_partial_hash_collision_is_confirmed_or_refuted_by_a_full_hash(self):
+        # Deux fichiers peuvent partager leurs premiers/derniers octets sans être
+        # identiques : le hash partiel seul ne doit jamais trancher, seul file_hash()
+        # (hash complet) fait foi. On réduit ici la fenêtre de hash partiel via un mock
+        # pour provoquer une collision partielle sans construire des fichiers de 64 Ko+.
+        def small_sample_partial_hash(path, _original=ps.partial_file_hash):
+            return _original(path, sample_size=4)
+
+        with unittest.mock.patch.object(ps, "partial_file_hash", side_effect=small_sample_partial_hash):
+            (self.dest_dir / "existing.jpg").write_bytes(b"AAAA-real-AAAA")
+            pending_by_size = ps.build_pending_size_index(self.dest_dir)
+            hashed_by_size = {}
+
+            # Même tête/queue (4 premiers et 4 derniers octets : "AAAA") mais milieu
+            # différent : même hash partiel, contenu réellement différent.
+            different = self.src_dir / "different.jpg"
+            different.write_bytes(b"AAAA-fake-AAAA")
+            result_different = ps.transfer_file(different, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+
+            # Réellement identique à existing.jpg : même hash partiel ET même contenu.
+            duplicate = self.src_dir / "duplicate.jpg"
+            duplicate.write_bytes(b"AAAA-real-AAAA")
+            result_duplicate = ps.transfer_file(duplicate, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+
+        self.assertEqual(result_different, "copied")
+        self.assertEqual(result_duplicate, "duplicate")
 
 
 class TestCopyFiles(unittest.TestCase):

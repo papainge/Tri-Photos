@@ -292,6 +292,26 @@ def file_hash(path: Path, chunk_size: int = 65536) -> str:
     return digest.hexdigest()
 
 
+def partial_file_hash(path: Path, sample_size: int = 65536) -> str:
+    """Hash SHA-256 du début et de la fin d'un fichier (jusqu'à sample_size octets
+    chacun), utilisé comme pré-filtre bon marché avant file_hash().
+
+    Deux fichiers de même taille mais de hash partiel différent sont garantis
+    différents (leur contenu diffère forcément quelque part dans la tête ou la queue) :
+    inutile de les hacher en entier pour le savoir. Un hash partiel identique reste à
+    confirmer par file_hash(), seul juge fiable d'une égalité complète — deux fichiers
+    peuvent en théorie partager leurs premiers/derniers octets sans être identiques.
+    """
+    digest = hashlib.sha256()
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        digest.update(f.read(sample_size))
+        if size > sample_size:
+            f.seek(max(size - sample_size, sample_size))
+            digest.update(f.read(sample_size))
+    return digest.hexdigest()
+
+
 def unique_destination(dest_dir: Path, filename: str) -> Path:
     """Évite d'écraser un fichier existant en suffixant _1, _2, ... en cas de collision."""
     dest = dest_dir / filename
@@ -309,11 +329,12 @@ def unique_destination(dest_dir: Path, filename: str) -> Path:
 def build_pending_size_index(target_dir: Path) -> dict:
     """Indexe par taille (en octets) les fichiers déjà présents dans target_dir, sans les
     hasher. Utilisé par transfer_file() avec un dict "hashed_by_size" (initialement
-    vide) pour ne calculer un hash SHA-256 que lorsqu'un autre fichier de taille
-    identique apparaît réellement : la plupart des fichiers n'ont pas de doublon de
-    taille identique, ce qui évite l'essentiel du hachage — en particulier coûteux pour
-    de grosses vidéos, à l'inverse des parseurs de date qui évitent déjà soigneusement
-    de les lire en entier.
+    vide) pour ne calculer de hash (d'abord partiel, puis complet seulement si
+    nécessaire — voir transfer_file) que lorsqu'un autre fichier de taille identique
+    apparaît réellement : la plupart des fichiers n'ont pas de doublon de taille
+    identique, ce qui évite l'essentiel du hachage — en particulier coûteux pour de
+    grosses vidéos, à l'inverse des parseurs de date qui évitent déjà soigneusement de
+    les lire en entier.
     """
     index = {}
     for existing_file in target_dir.iterdir():
@@ -331,11 +352,23 @@ def transfer_file(
 ) -> str:
     """Copie ou déplace src_file vers target_dir, sauf si son contenu s'y trouve déjà.
 
-    pending_by_size (voir build_pending_size_index) et hashed_by_size (dict {taille:
-    {hash, ...}}, à initialiser vide) forment ensemble l'index des fichiers déjà connus
-    dans target_dir. src_file n'est haché que si un autre fichier de sa taille a déjà
-    été vu (existant ou transféré plus tôt dans la même opération) ; dans ce cas, les
-    candidats de cette taille encore en attente sont hachés à leur tour, une seule fois.
+    Détection de doublons à trois niveaux, chacun paresseux (calculé seulement quand le
+    niveau précédent a réellement collisionné) :
+    1. Taille (pending_by_size, voir build_pending_size_index) : la plupart des
+       fichiers n'ont pas de doublon de taille identique, ce qui évite l'essentiel du
+       hachage, même partiel.
+    2. Hash partiel (voir partial_file_hash), bon marché : ne sert qu'à confirmer que
+       deux fichiers de même taille ont vraiment une chance d'être identiques. Sans ce
+       niveau intermédiaire, des fichiers de taille strictement identique mais de
+       contenu différent (dashcams/caméras à segments de taille fixe, par exemple)
+       seraient chacun haché intégralement en pure perte.
+    3. Hash SHA-256 complet (file_hash), seul juge fiable d'une égalité de contenu :
+       calculé uniquement pour les fichiers dont la taille ET le hash partiel
+       coïncident déjà avec un autre fichier.
+
+    hashed_by_size (dict {taille: {hash_partiel: {"pending": [Path, ...], "hashes":
+    {hash_complet, ...}}}}, à initialiser vide) et pending_by_size forment ensemble
+    l'index des fichiers déjà connus dans target_dir.
 
     En mode "deplacer", un doublon est tout de même supprimé de la source puisqu'une
     copie de son contenu existe déjà à destination. Renvoie "duplicate", "copied" ou
@@ -347,19 +380,38 @@ def transfer_file(
         size = None
 
     if size is not None and size in pending_by_size:
+        partial_buckets = hashed_by_size.setdefault(size, {})
         for candidate in pending_by_size.pop(size):
             try:
-                hashed_by_size.setdefault(size, set()).add(file_hash(candidate))
+                partial = partial_file_hash(candidate)
             except OSError:
-                pass
+                continue
+            partial_buckets.setdefault(partial, {"pending": [], "hashes": set()})["pending"].append(candidate)
 
+    src_partial = None
     src_hash = None
-    if size is not None and hashed_by_size.get(size):
-        src_hash = file_hash(src_file)
-        if src_hash in hashed_by_size[size]:
-            if mode == "deplacer":
-                src_file.unlink()
-            return "duplicate"
+    is_duplicate = False
+    partial_buckets = hashed_by_size.get(size) if size is not None else None
+    if partial_buckets:
+        try:
+            src_partial = partial_file_hash(src_file)
+        except OSError:
+            src_partial = None
+        bucket = partial_buckets.get(src_partial) if src_partial is not None else None
+        if bucket is not None:
+            for candidate in bucket["pending"]:
+                try:
+                    bucket["hashes"].add(file_hash(candidate))
+                except OSError:
+                    pass
+            bucket["pending"] = []
+            src_hash = file_hash(src_file)
+            is_duplicate = src_hash in bucket["hashes"]
+
+    if is_duplicate:
+        if mode == "deplacer":
+            src_file.unlink()
+        return "duplicate"
 
     dst_file = unique_destination(target_dir, src_file.name)
     if mode == "deplacer":
@@ -369,7 +421,9 @@ def transfer_file(
 
     if size is not None:
         if src_hash is not None:
-            hashed_by_size[size].add(src_hash)
+            hashed_by_size[size][src_partial]["hashes"].add(src_hash)
+        elif src_partial is not None:
+            hashed_by_size[size].setdefault(src_partial, {"pending": [], "hashes": set()})["pending"].append(dst_file)
         else:
             pending_by_size.setdefault(size, []).append(dst_file)
 
