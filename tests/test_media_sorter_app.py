@@ -508,5 +508,119 @@ class TestCopyLifecycle(AppTestCase):
         self.assertEqual(len(list(self.dest_dir.rglob("*.jpg"))), 2)
 
 
+class TestScanCopyMutualExclusion(AppTestCase):
+    def test_start_copy_is_a_noop_while_scan_is_running(self):
+        photo = self._make_photo("a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app.dest_dir.set(str(self.dest_dir))
+        release = threading.Event()
+
+        def blocking_get_media_date(path, _original=ms.get_media_date):
+            release.wait(timeout=2)
+            return _original(path)
+
+        with unittest.mock.patch.object(ms, "get_media_date", side_effect=blocking_get_media_date):
+            run_steps(self.root, [
+                (10, self.app.start_scan),
+                (30, self.app.start_copy),  # tentative de copie pendant l'analyse
+                (0, release.set),
+                (0, self.root.quit),
+            ])
+            run_and_wait(self.root, [], lambda: str(self.app.scan_button.cget("state")) == "normal")
+
+        self.assertIsNone(self.app._copy_cancel_event)
+        self.assertEqual(list(self.dest_dir.rglob("*.jpg")), [])
+
+    def test_start_scan_is_a_noop_while_copy_is_running(self):
+        photo = self._make_photo("a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app.dest_dir.set(str(self.dest_dir))
+        release = threading.Event()
+
+        def blocking_transfer_file(*args, _original=ms.transfer_file, **kwargs):
+            release.wait(timeout=2)
+            return _original(*args, **kwargs)
+
+        with unittest.mock.patch.object(ms, "transfer_file", side_effect=blocking_transfer_file):
+            run_steps(self.root, [
+                (10, self.app.start_copy),
+                (30, self.app.start_scan),  # tentative d'analyse pendant la copie
+                (0, release.set),
+                (0, self.root.quit),
+            ])
+            run_and_wait(self.root, [], lambda: str(self.app.create_button.cget("state")) == "normal")
+
+        self.assertIsNone(self.app._scan_cancel_event)
+
+    def test_options_are_locked_while_scan_is_running(self):
+        self._make_photo("a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+        release = threading.Event()
+
+        def blocking_get_media_date(path, _original=ms.get_media_date):
+            release.wait(timeout=2)
+            return _original(path)
+
+        results = {}
+
+        def snapshot():
+            results["scan_button"] = str(self.app.scan_button.cget("state"))
+            results["recursive"] = str(self.app.recursive_frame.winfo_children()[0].cget("state"))
+            results["level"] = str(self.app.level_frame.winfo_children()[1].cget("state"))
+            results["media"] = str(self.app.media_frame.winfo_children()[0].cget("state"))
+            results["mode"] = str(self.app.mode_frame.winfo_children()[1].cget("state"))
+
+        with unittest.mock.patch.object(ms, "get_media_date", side_effect=blocking_get_media_date):
+            run_steps(self.root, [
+                (10, self.app.start_scan),
+                (30, snapshot),
+                (0, release.set),
+                (0, self.root.quit),
+            ])
+            run_and_wait(self.root, [], lambda: str(self.app.scan_button.cget("state")) == "normal")
+
+        self.assertEqual(results, {k: "disabled" for k in results})
+        self.assertEqual(str(self.app.scan_button.cget("state")), "normal")
+        self.assertEqual(str(self.app.level_frame.winfo_children()[1].cget("state")), "normal")
+        self.assertEqual(str(self.app.media_frame.winfo_children()[0].cget("state")), "normal")
+        self.assertEqual(str(self.app.mode_frame.winfo_children()[1].cget("state")), "normal")
+
+    def test_options_are_locked_while_copy_is_running(self):
+        photo = self._make_photo("a.jpg")
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app.dest_dir.set(str(self.dest_dir))
+        release = threading.Event()
+
+        def blocking_transfer_file(*args, _original=ms.transfer_file, **kwargs):
+            release.wait(timeout=2)
+            return _original(*args, **kwargs)
+
+        results = {}
+
+        def snapshot():
+            results["scan_button"] = str(self.app.scan_button.cget("state"))
+            results["recursive"] = str(self.app.recursive_frame.winfo_children()[0].cget("state"))
+            results["level"] = str(self.app.level_frame.winfo_children()[1].cget("state"))
+            results["media"] = str(self.app.media_frame.winfo_children()[0].cget("state"))
+            results["mode"] = str(self.app.mode_frame.winfo_children()[1].cget("state"))
+
+        with unittest.mock.patch.object(ms, "transfer_file", side_effect=blocking_transfer_file):
+            run_steps(self.root, [
+                (10, self.app.start_copy),
+                (30, snapshot),
+                (0, release.set),
+                (0, self.root.quit),
+            ])
+            run_and_wait(self.root, [], lambda: str(self.app.create_button.cget("state")) == "normal")
+
+        self.assertEqual(results, {k: "disabled" for k in results})
+        self.assertEqual(str(self.app.scan_button.cget("state")), "normal")
+        self.assertEqual(str(self.app.level_frame.winfo_children()[1].cget("state")), "normal")
+        self.assertEqual(str(self.app.media_frame.winfo_children()[0].cget("state")), "normal")
+        self.assertEqual(str(self.app.mode_frame.winfo_children()[1].cget("state")), "normal")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -438,26 +438,26 @@ class MediaSorterApp:
         )
         self.cancel_scan_button.pack(side="left", padx=(6, 0))
 
-        recursive_frame = ttk.Frame(self.root)
-        recursive_frame.pack(fill="x", **pad)
+        self.recursive_frame = ttk.Frame(self.root)
+        self.recursive_frame.pack(fill="x", **pad)
         ttk.Checkbutton(
-            recursive_frame, text="Inclure les sous-dossiers",
+            self.recursive_frame, text="Inclure les sous-dossiers",
             variable=self.recursive,
         ).pack(side="left")
 
-        level_frame = ttk.Frame(self.root)
-        level_frame.pack(fill="x", **pad)
-        ttk.Label(level_frame, text="Niveau de tri :").pack(side="left")
+        self.level_frame = ttk.Frame(self.root)
+        self.level_frame.pack(fill="x", **pad)
+        ttk.Label(self.level_frame, text="Niveau de tri :").pack(side="left")
         for value in ("annee", "mois", "jour"):
             ttk.Radiobutton(
-                level_frame, text=SORT_LEVELS[value][0], value=value,
+                self.level_frame, text=SORT_LEVELS[value][0], value=value,
                 variable=self.sort_level, command=self._on_options_change,
             ).pack(side="left", padx=(8, 0))
 
-        media_frame = ttk.Frame(self.root)
-        media_frame.pack(fill="x", **pad)
+        self.media_frame = ttk.Frame(self.root)
+        self.media_frame.pack(fill="x", **pad)
         ttk.Checkbutton(
-            media_frame, text="Séparer Photos et Vidéos à la racine de la destination",
+            self.media_frame, text="Séparer Photos et Vidéos à la racine de la destination",
             variable=self.separate_media, command=self._on_options_change,
         ).pack(side="left")
 
@@ -488,15 +488,15 @@ class MediaSorterApp:
         ttk.Entry(dest_frame, textvariable=self.dest_dir).pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(dest_frame, text="Choisir...", command=self.choose_dest).pack(side="left")
 
-        mode_frame = ttk.Frame(self.root)
-        mode_frame.pack(fill="x", **pad)
-        ttk.Label(mode_frame, text="Action :").pack(side="left")
+        self.mode_frame = ttk.Frame(self.root)
+        self.mode_frame.pack(fill="x", **pad)
+        ttk.Label(self.mode_frame, text="Action :").pack(side="left")
         ttk.Radiobutton(
-            mode_frame, text="Copier (originaux conservés)", value="copier",
+            self.mode_frame, text="Copier (originaux conservés)", value="copier",
             variable=self.copy_mode, command=self._on_copy_mode_change,
         ).pack(side="left", padx=(8, 0))
         ttk.Radiobutton(
-            mode_frame, text="Déplacer (originaux supprimés)", value="deplacer",
+            self.mode_frame, text="Déplacer (originaux supprimés)", value="deplacer",
             variable=self.copy_mode, command=self._on_copy_mode_change,
         ).pack(side="left", padx=(8, 0))
 
@@ -511,6 +511,23 @@ class MediaSorterApp:
             copy_button_frame, text="Annuler", command=self.cancel_copy, state="disabled",
         )
         self.cancel_copy_button.pack(side="left", padx=(6, 0))
+
+    def _option_widgets(self):
+        widgets = []
+        for frame in (self.recursive_frame, self.level_frame, self.media_frame, self.mode_frame):
+            widgets.extend(frame.winfo_children())
+        return widgets
+
+    def _set_options_locked(self, locked):
+        # Empêche de déclencher une analyse pendant une copie (ou l'inverse), et empêche
+        # de changer les options pendant l'une ou l'autre : un changement d'option
+        # rafraîchit l'arborescence (_on_options_change) et pourrait sinon réactiver
+        # "Créer l'arborescence..." pendant qu'une opération est déjà en cours, ouvrant
+        # la voie à deux analyses/copies concurrentes sur les mêmes fichiers.
+        state = "disabled" if locked else "normal"
+        self.scan_button.config(state=state)
+        for widget in self._option_widgets():
+            widget.configure(state=state)
 
     def _on_copy_mode_change(self):
         verb = "copier" if self.copy_mode.get() == "copier" else "déplacer"
@@ -527,6 +544,9 @@ class MediaSorterApp:
             self.dest_dir.set(path)
 
     def start_scan(self):
+        if self._copy_cancel_event is not None:
+            return  # une copie/déplacement est déjà en cours
+
         source = self.source_dir.get().strip()
         if not source:
             messagebox.showwarning("Dossier manquant", "Veuillez choisir un dossier source.")
@@ -537,7 +557,7 @@ class MediaSorterApp:
             return
 
         self.create_button.config(state="disabled")
-        self.scan_button.config(state="disabled")
+        self._set_options_locked(True)
         self.cancel_scan_button.config(state="normal")
         self.treeview.delete(*self.treeview.get_children())
         self.total_label.config(text="")
@@ -572,7 +592,7 @@ class MediaSorterApp:
 
     def _reset_scan_buttons(self):
         self._scan_cancel_event = None
-        self.scan_button.config(state="normal")
+        self._set_options_locked(False)
         self.cancel_scan_button.config(state="disabled")
 
     def _scan_cancelled(self):
@@ -636,6 +656,9 @@ class MediaSorterApp:
                 self._populate_tree(child_node, value, depth + 1, month_depth)
 
     def start_copy(self):
+        if self._scan_cancel_event is not None:
+            return  # une analyse est déjà en cours
+
         dest = self.dest_dir.get().strip()
         if not dest:
             messagebox.showwarning("Dossier manquant", "Veuillez choisir un dossier de destination.")
@@ -669,6 +692,7 @@ class MediaSorterApp:
             return
 
         self.create_button.config(state="disabled")
+        self._set_options_locked(True)
         self.cancel_copy_button.config(state="normal")
         self.status_label.config(text=f"{verb} en cours...")
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
@@ -702,6 +726,7 @@ class MediaSorterApp:
 
     def _reset_copy_buttons(self):
         self._copy_cancel_event = None
+        self._set_options_locked(False)
         self.create_button.config(state="normal")
         self.cancel_copy_button.config(state="disabled")
 
