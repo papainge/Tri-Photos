@@ -123,7 +123,13 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
    la séparation Photos/Vidéos (voir ci-dessous), ce réglage ne peut pas se contenter
    de réorganiser l'arborescence déjà analysée : la changer après une analyse affiche
    un rappel invitant à recliquer sur **Analyser** pour l'appliquer.
-2. Cocher **À défaut, essayer de détecter une date dans le nom du fichier** si vous
+2. Pour trier en une seule fois plusieurs cartes SD ou exports de téléphones différents,
+   ajouter chacun via **Ajouter...** sous **Dossiers sources supplémentaires
+   (optionnel)** ; **Retirer** enlève le dossier sélectionné dans la liste. Le dossier
+   source principal (étape précédente) est optionnel dès qu'au moins un dossier
+   supplémentaire est choisi. Tous les dossiers sources sont analysés et copiés ensemble,
+   comme s'ils n'en formaient qu'un seul.
+3. Cocher **À défaut, essayer de détecter une date dans le nom du fichier** si vous
    voulez qu'un fichier sans métadonnée exploitable (qui finirait sinon dans `No Info`)
    soit quand même daté à partir de motifs de nom répandus (`IMG_20230715_143022.jpg`,
    `IMG-20230715-WA0001.jpg` sans heure, `2023-07-15 14.30.22.jpg`...). Désactivé par
@@ -131,34 +137,34 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
    ne rien vouloir dire, donc mieux vaut l'activer sciemment. Comme la case précédente,
    ce réglage change quels fichiers obtiennent une date pendant l'analyse elle-même : le
    changer après coup affiche aussi un rappel invitant à relancer **Analyser**.
-3. Choisir le **niveau de tri** souhaité : *Année*, *Année / Mois* ou
+4. Choisir le **niveau de tri** souhaité : *Année*, *Année / Mois* ou
    *Année / Mois / Jour*. Les niveaux étant imbriqués, choisir *Jour* implique
    automatiquement le mois et l'année, etc. Ce choix peut être changé à tout moment,
    même après l'analyse : l'aperçu se met à jour immédiatement.
-4. Cocher **Séparer Photos et Vidéos à la racine de la destination** si vous voulez deux
+5. Cocher **Séparer Photos et Vidéos à la racine de la destination** si vous voulez deux
    arborescences distinctes (`destination/Photos/...` et `destination/Vidéos/...`) au
    lieu d'un classement mélangé par date (comportement par défaut). Ce choix peut aussi
    être changé après l'analyse.
-5. Cocher **Renommer les fichiers selon la date (AAAA-MM-JJ_HHMMSS)** si vous voulez
+6. Cocher **Renommer les fichiers selon la date (AAAA-MM-JJ_HHMMSS)** si vous voulez
    remplacer le nom d'origine (par ex. `IMG_0001.jpg`, souvent réutilisé à l'identique
    par plusieurs appareils) par un nom basé sur la date de prise de vue/création (par
    ex. `2024-08-15_143022.jpg`). Un fichier sans date exploitable (classé dans
    `No Info`) garde son nom d'origine, faute de date à proposer. Ce réglage n'a d'effet
    qu'au moment de la copie/du déplacement, pas sur l'arborescence de l'aperçu.
-6. Cliquer sur **Analyser** : l'arborescence correspondant aux choix ci-dessus, avec le
+7. Cliquer sur **Analyser** : l'arborescence correspondant aux choix ci-dessus, avec le
    nombre de fichiers à chaque niveau, s'affiche. Le total (avec la répartition
    photos/vidéos et le temps qu'a pris l'analyse) reste visible au-dessus de
    l'arborescence pendant toute l'opération. La lecture des dates est parallélisée sur
    plusieurs fichiers à la fois pour accélérer l'analyse des dossiers volumineux. Si elle
    prend malgré tout trop de temps, le bouton **Annuler** (à côté d'Analyser) l'interrompt
    à la volée.
-7. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
-   l'arborescence. Ce dossier ne peut pas être le dossier source, ni un de ses
-   sous-dossiers (refusé au moment de lancer la copie, pour éviter de copier les
-   fichiers dans le dossier en cours d'analyse).
-8. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou
+8. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
+   l'arborescence. Ce dossier ne peut être aucun des dossiers sources analysés (principal
+   ou supplémentaires), ni un de leurs sous-dossiers (refusé au moment de lancer la
+   copie, pour éviter de copier les fichiers dans un dossier en cours d'analyse).
+9. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou
    *Déplacer* (les originaux sont supprimés une fois transférés).
-9. Cliquer sur **Créer l'arborescence et copier/déplacer les fichiers**. Une copie (ou
+10. Cliquer sur **Créer l'arborescence et copier/déplacer les fichiers**. Une copie (ou
    le fichier déplacé) est placée dans le sous-dossier correspondant (par exemple
    `destination/2024/08-Août/15/`, ou `destination/Photos/2024/08-Août/15/` si Photos et
    Vidéos sont séparés). Les fichiers déjà présents dans le dossier de destination (même

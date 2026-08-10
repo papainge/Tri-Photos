@@ -25,9 +25,10 @@ class MediaSorterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Tri de photos par date")
-        self.root.geometry("760x560")
+        self.root.geometry("760x620")
 
         self.source_dir = tk.StringVar()
+        self.extra_source_dirs = []  # dossiers sources supplémentaires (voir add_extra_source)
         self.dest_dir = tk.StringVar()
         self.sort_level = tk.StringVar(value="jour")
         self.copy_mode = tk.StringVar(value="copier")
@@ -36,7 +37,7 @@ class MediaSorterApp:
         self.recursive = tk.BooleanVar(value=True)
         self.use_filename_fallback = tk.BooleanVar(value=False)
         self.tree_data = {}
-        self._scanned_source_path = None
+        self._scanned_source_paths = []
         self._scan_cancel_event = None
         self._scan_start_time = None
         self.last_scan_duration = None
@@ -59,6 +60,18 @@ class MediaSorterApp:
             src_frame, text="Annuler", command=self.cancel_scan, state="disabled",
         )
         self.cancel_scan_button.pack(side="left", padx=(6, 0))
+
+        extra_sources_frame = ttk.Frame(self.root)
+        extra_sources_frame.pack(fill="x", **pad)
+        ttk.Label(extra_sources_frame, text="Dossiers sources supplémentaires (optionnel) :").pack(anchor="w")
+        extra_sources_row = ttk.Frame(extra_sources_frame)
+        extra_sources_row.pack(fill="x", pady=(4, 0))
+        self.extra_sources_listbox = tk.Listbox(extra_sources_row, height=3, exportselection=False)
+        self.extra_sources_listbox.pack(side="left", fill="x", expand=True)
+        extra_sources_buttons = ttk.Frame(extra_sources_row)
+        extra_sources_buttons.pack(side="left", padx=(6, 0))
+        ttk.Button(extra_sources_buttons, text="Ajouter...", command=self.add_extra_source).pack(fill="x")
+        ttk.Button(extra_sources_buttons, text="Retirer", command=self.remove_extra_source).pack(fill="x", pady=(4, 0))
 
         self.recursive_frame = ttk.Frame(self.root)
         self.recursive_frame.pack(fill="x", **pad)
@@ -182,6 +195,60 @@ class MediaSorterApp:
             self.source_dir.set(path)
             self._update_pre_scan_count()
 
+    @staticmethod
+    def _resolve_key(path: Path):
+        try:
+            return path.resolve()
+        except OSError:
+            return path
+
+    def _collect_source_paths(self, primary_path=None):
+        """Combine le dossier source principal (déjà validé par l'appelant — Path si
+        renseigné et valide, sinon None) et les dossiers sources supplémentaires (voir
+        add_extra_source) en une seule liste, sans doublons : deux orthographes du même
+        dossier (chemin relatif/absolu, casse sous Windows...) ne doivent pas le faire
+        analyser deux fois — comparaison sur le chemin résolu plutôt que la chaîne brute.
+        """
+        paths = []
+        seen = set()
+        candidates = ([primary_path] if primary_path is not None else []) + list(self.extra_source_dirs)
+        for path in candidates:
+            key = self._resolve_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            paths.append(path)
+        return paths
+
+    def add_extra_source(self):
+        path = filedialog.askdirectory(title="Choisir un dossier source supplémentaire")
+        if not path:
+            return
+        candidate = Path(path)
+        key = self._resolve_key(candidate)
+
+        already_selected = set()
+        primary = self.source_dir.get().strip()
+        if primary:
+            already_selected.add(self._resolve_key(Path(primary)))
+        already_selected.update(self._resolve_key(existing) for existing in self.extra_source_dirs)
+        if key in already_selected:
+            messagebox.showinfo("Dossier déjà ajouté", "Ce dossier fait déjà partie des sources sélectionnées.")
+            return
+
+        self.extra_source_dirs.append(candidate)
+        self.extra_sources_listbox.insert("end", str(candidate))
+        self._update_pre_scan_count()
+
+    def remove_extra_source(self):
+        selection = self.extra_sources_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        del self.extra_source_dirs[index]
+        self.extra_sources_listbox.delete(index)
+        self._update_pre_scan_count()
+
     def _on_recursive_change(self):
         # Contrairement au niveau de tri et à la séparation Photos/Vidéos, ce réglage
         # ne peut pas se contenter de ré-agréger l'arborescence déjà analysée : il
@@ -211,24 +278,25 @@ class MediaSorterApp:
 
     def _update_pre_scan_count(self):
         source = self.source_dir.get().strip()
-        if not source or not Path(source).is_dir():
+        primary_path = Path(source) if source and Path(source).is_dir() else None
+        source_paths = self._collect_source_paths(primary_path)
+        if not source_paths:
             self.pre_scan_label.config(text="")
             return
 
-        source_path = Path(source)
         recursive = self.recursive.get()
         self._pre_count_generation += 1
         generation = self._pre_count_generation
         self.pre_scan_label.config(text="Comptage des fichiers...")
         threading.Thread(
             target=self._pre_scan_count_worker,
-            args=(source_path, recursive, generation),
+            args=(source_paths, recursive, generation),
             daemon=True,
         ).start()
 
-    def _pre_scan_count_worker(self, source_path: Path, recursive: bool, generation: int):
+    def _pre_scan_count_worker(self, source_paths: list, recursive: bool, generation: int):
         try:
-            counts = media_sorter.count_media_files(source_path, recursive)
+            counts = media_sorter.count_media_files(source_paths, recursive)
         except OSError:
             counts = None
         self.root.after(0, self._pre_scan_count_done, counts, generation)
@@ -258,12 +326,16 @@ class MediaSorterApp:
             return  # une copie/déplacement est déjà en cours
 
         source = self.source_dir.get().strip()
-        if not source:
+        primary_path = None
+        if source:
+            primary_path = Path(source)
+            if not primary_path.is_dir():
+                messagebox.showerror("Dossier invalide", "Le dossier source n'existe pas.")
+                return
+
+        source_paths = self._collect_source_paths(primary_path)
+        if not source_paths:
             messagebox.showwarning("Dossier manquant", "Veuillez choisir un dossier source.")
-            return
-        source_path = Path(source)
-        if not source_path.is_dir():
-            messagebox.showerror("Dossier invalide", "Le dossier source n'existe pas.")
             return
 
         self.create_button.config(state="disabled")
@@ -281,7 +353,7 @@ class MediaSorterApp:
         self._scan_cancel_event = threading.Event()
         threading.Thread(
             target=self._scan_worker,
-            args=(source_path, self.recursive.get(), self._scan_cancel_event, self.use_filename_fallback.get()),
+            args=(source_paths, self.recursive.get(), self._scan_cancel_event, self.use_filename_fallback.get()),
             daemon=True,
         ).start()
 
@@ -292,21 +364,21 @@ class MediaSorterApp:
         self.status_label.config(text="Annulation en cours...")
 
     def _scan_worker(
-        self, source_path: Path, recursive: bool, cancel_event: threading.Event, use_filename_fallback: bool,
+        self, source_paths: list, recursive: bool, cancel_event: threading.Event, use_filename_fallback: bool,
     ):
         try:
             tree = media_sorter.scan_media(
-                source_path, recursive=recursive, cancel_event=cancel_event,
+                source_paths, recursive=recursive, cancel_event=cancel_event,
                 use_filename_fallback=use_filename_fallback,
             )
         except media_sorter.ScanCancelled:
             self.root.after(0, self._scan_cancelled)
             return
         except Exception as exc:
-            media_sorter.logger.exception("Échec de l'analyse de %s", source_path)
+            media_sorter.logger.exception("Échec de l'analyse de %s", source_paths)
             self.root.after(0, self._scan_failed, exc)
             return
-        self.root.after(0, self._scan_done, tree, source_path)
+        self.root.after(0, self._scan_done, tree, source_paths)
 
     def _reset_scan_buttons(self):
         self._scan_cancel_event = None
@@ -326,15 +398,12 @@ class MediaSorterApp:
         self.status_label.config(text="Erreur lors de l'analyse.")
         messagebox.showerror("Erreur", str(exc))
 
-    def _scan_done(self, tree, source_path):
+    def _scan_done(self, tree, source_paths):
         self.progress.stop()
         self.progress.pack_forget()
         self._reset_scan_buttons()
         self.last_scan_duration = time.time() - self._scan_start_time
-        try:
-            self._scanned_source_path = source_path.resolve()
-        except OSError:
-            self._scanned_source_path = source_path
+        self._scanned_source_paths = [self._resolve_key(p) for p in source_paths]
         self.tree_data = tree
         self._refresh_treeview()
 
@@ -408,17 +477,20 @@ class MediaSorterApp:
             return
 
         dest_path = Path(dest)
-        # Comparé au dossier réellement analysé (celui qui a produit tree_data), pas au
-        # contenu actuel du champ "Dossier source" : sinon il suffit de vider ou modifier
-        # ce champ après l'analyse pour contourner la vérification.
-        if self._scanned_source_path is not None:
+        # Comparé aux dossiers réellement analysés (ceux qui ont produit tree_data), pas
+        # au contenu actuel du champ "Dossier source" : sinon il suffit de vider ou
+        # modifier ce champ après l'analyse pour contourner la vérification.
+        if self._scanned_source_paths:
             resolved_dest = dest_path.resolve()
-            if resolved_dest == self._scanned_source_path or resolved_dest.is_relative_to(self._scanned_source_path):
+            if any(
+                resolved_dest == scanned or resolved_dest.is_relative_to(scanned)
+                for scanned in self._scanned_source_paths
+            ):
                 messagebox.showerror(
                     "Dossier de destination invalide",
-                    "Le dossier de destination ne peut pas être le dossier source, ni un de ses "
-                    "sous-dossiers : cela copierait les fichiers dans le dossier en cours d'analyse "
-                    "(risque de doublons en cascade, voire de boucle en mode récursif).",
+                    "Le dossier de destination ne peut pas être un dossier source analysé, ni un de "
+                    "ses sous-dossiers : cela copierait les fichiers dans un dossier en cours "
+                    "d'analyse (risque de doublons en cascade, voire de boucle en mode récursif).",
                 )
                 return
 

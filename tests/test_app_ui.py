@@ -200,6 +200,68 @@ class TestFolderPickers(AppTestCase):
         self.assertEqual(self.app.dest_dir.get(), str(self.dest_dir))
 
 
+class TestExtraSources(AppTestCase):
+    def setUp(self):
+        super().setUp()
+        self.src_dir2 = Path(self.tmpdir.name) / "src2"
+        self.src_dir2.mkdir()
+
+    def test_add_extra_source_appends_to_list_and_listbox(self):
+        filedialog.askdirectory = lambda **k: str(self.src_dir2)
+
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.add_extra_source()
+
+        self.assertEqual(self.app.extra_source_dirs, [self.src_dir2])
+        self.assertEqual(self.app.extra_sources_listbox.get(0, "end"), (str(self.src_dir2),))
+
+    def test_add_extra_source_ignores_cancelled_dialog(self):
+        filedialog.askdirectory = lambda **k: ""
+
+        self.app.add_extra_source()
+
+        self.assertEqual(self.app.extra_source_dirs, [])
+
+    def test_add_extra_source_refuses_duplicate_of_primary(self):
+        self.app.source_dir.set(str(self.src_dir))
+        filedialog.askdirectory = lambda **k: str(self.src_dir)
+
+        self.app.add_extra_source()
+
+        self.assertEqual(self.app.extra_source_dirs, [])
+        self.assertEqual(self.messages[0][:2], ("showinfo", "Dossier déjà ajouté"))
+
+    def test_add_extra_source_refuses_duplicate_already_added(self):
+        filedialog.askdirectory = lambda **k: str(self.src_dir2)
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.add_extra_source()
+            self.app.add_extra_source()
+
+        self.assertEqual(self.app.extra_source_dirs, [self.src_dir2])
+        self.assertEqual(self.messages[0][:2], ("showinfo", "Dossier déjà ajouté"))
+
+    def test_remove_extra_source_deletes_selected_entry(self):
+        filedialog.askdirectory = lambda **k: str(self.src_dir2)
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.add_extra_source()
+        self.app.extra_sources_listbox.selection_set(0)
+
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.remove_extra_source()
+
+        self.assertEqual(self.app.extra_source_dirs, [])
+        self.assertEqual(self.app.extra_sources_listbox.size(), 0)
+
+    def test_remove_extra_source_does_nothing_without_selection(self):
+        filedialog.askdirectory = lambda **k: str(self.src_dir2)
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.add_extra_source()
+
+        self.app.remove_extra_source()
+
+        self.assertEqual(self.app.extra_source_dirs, [self.src_dir2])
+
+
 class TestPreScanCount(AppTestCase):
     def test_shows_count_after_choosing_source_dir(self):
         self._make_photo("a.jpg")
@@ -457,6 +519,38 @@ class TestScanLifecycle(AppTestCase):
         self.assertIn("2 fichier(s)", self.app.total_label.cget("text"))
         self.assertEqual(str(self.app.cancel_scan_button.cget("state")), "disabled")
         self.assertEqual(str(self.app.create_button.cget("state")), "normal")
+
+    def test_scan_combines_primary_and_extra_source_directories(self):
+        self._make_photo("a.jpg")
+        other_source = Path(self.tmpdir.name) / "src2"
+        other_source.mkdir()
+        Image.new("RGB", (2, 2), color=(9, 9, 9)).save(other_source / "b.jpg")
+
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.extra_source_dirs.append(other_source)
+
+        run_and_wait(
+            self.root, [(10, self.app.start_scan)],
+            lambda: str(self.app.scan_button.cget("state")) == "normal",
+        )
+
+        self.assertIn("2 fichier(s)", self.app.total_label.cget("text"))
+        self.assertEqual(
+            sorted(self.app._scanned_source_paths),
+            sorted([self.src_dir.resolve(), other_source.resolve()]),
+        )
+
+    def test_scan_works_with_only_extra_sources_and_no_primary(self):
+        self._make_photo("a.jpg")
+        self.app.extra_source_dirs.append(self.src_dir)
+
+        run_and_wait(
+            self.root, [(10, self.app.start_scan)],
+            lambda: str(self.app.scan_button.cget("state")) == "normal",
+        )
+
+        self.assertEqual(self.messages, [])
+        self.assertIn("1 fichier(s)", self.app.total_label.cget("text"))
         self.assertEqual(len(self.app.treeview.get_children()), 1)
 
     def test_buttons_toggle_while_scan_is_running(self):
@@ -644,7 +738,7 @@ class TestStartCopyValidation(AppTestCase):
     def test_errors_when_dest_dir_equals_scanned_source_dir(self):
         photo = self._make_photo("a.jpg")
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
-        self.app._scanned_source_path = self.src_dir.resolve()
+        self.app._scanned_source_paths = [self.src_dir.resolve()]
         self.app.dest_dir.set(str(self.src_dir))
 
         self.app.start_copy()
@@ -657,8 +751,23 @@ class TestStartCopyValidation(AppTestCase):
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
         nested_dest = self.src_dir / "sorted"
         nested_dest.mkdir()
-        self.app._scanned_source_path = self.src_dir.resolve()
+        self.app._scanned_source_paths = [self.src_dir.resolve()]
         self.app.dest_dir.set(str(nested_dest))
+
+        self.app.start_copy()
+
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
+
+    def test_errors_when_dest_dir_equals_a_second_scanned_source_dir(self):
+        # Le garde-fou doit couvrir tous les dossiers réellement analysés, pas seulement
+        # le premier (voir _collect_source_paths / le scan multi-sources).
+        photo = self._make_photo("a.jpg")
+        other_source = Path(self.tmpdir.name) / "src2"
+        other_source.mkdir()
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app._scanned_source_paths = [self.src_dir.resolve(), other_source.resolve()]
+        self.app.dest_dir.set(str(other_source))
 
         self.app.start_copy()
 

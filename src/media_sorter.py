@@ -257,24 +257,38 @@ def list_media_files(source_dir: Path, recursive: bool = True, cancel_event: thr
     return candidates
 
 
-def count_media_files(source_dir: Path, recursive: bool = True) -> dict:
-    """Compte rapidement les fichiers photo/vidéo de source_dir par catégorie, sans lire
-    leurs métadonnées (contrairement à scan_media) : donne un ordre de grandeur avant de
-    lancer l'analyse complète, qui peut être bien plus longue sur un gros dossier.
+def _as_source_dir_list(source_dirs) -> list:
+    """Normalise source_dirs — un chemin unique ou une liste de chemins — en liste de
+    Path, pour que count_media_files/scan_media acceptent indifféremment les deux (voir
+    app_ui.py, qui permet d'analyser plusieurs dossiers sources en une seule fois :
+    cartes SD de plusieurs appareils, exports de plusieurs téléphones)."""
+    if isinstance(source_dirs, (str, Path)):
+        return [Path(source_dirs)]
+    return [Path(d) for d in source_dirs]
+
+
+def count_media_files(source_dirs, recursive: bool = True) -> dict:
+    """Compte rapidement les fichiers photo/vidéo d'un ou plusieurs dossiers sources
+    (voir _as_source_dir_list) par catégorie, sans lire leurs métadonnées (contrairement
+    à scan_media) : donne un ordre de grandeur avant de lancer l'analyse complète, qui
+    peut être bien plus longue sur un gros dossier.
     """
     counts = {category: 0 for category in CATEGORY_LABELS}
-    for _path, category in list_media_files(source_dir, recursive):
-        counts[category] += 1
+    for source_dir in _as_source_dir_list(source_dirs):
+        for _path, category in list_media_files(source_dir, recursive):
+            counts[category] += 1
     return counts
 
 
 def scan_media(
-    source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None, max_workers: int = None,
+    source_dirs, recursive: bool = True, cancel_event: threading.Event = None, max_workers: int = None,
     use_filename_fallback: bool = False,
 ):
-    """Parcourt source_dir (récursivement par défaut, ou uniquement à sa racine) et
-    regroupe photos et vidéos par catégorie ("photos" / "videos") puis par (année, mois,
-    jour).
+    """Parcourt un ou plusieurs dossiers sources (voir _as_source_dir_list — récursivement
+    par défaut, ou uniquement à leur racine) et regroupe photos et vidéos par catégorie
+    ("photos" / "videos") puis par (année, mois, jour), tous dossiers sources confondus :
+    un fichier identique présent dans deux dossiers sources sera vu deux fois ici (aucune
+    déduplication au scan, qui reste basée sur le contenu à la copie — voir transfer_file).
 
     La lecture de la date (get_media_date, dominée par des I/O disque : ouverture de
     fichier, lecture d'en-tête EXIF ou vidéo) est parallélisée sur plusieurs threads —
@@ -291,7 +305,9 @@ def scan_media(
     parcours du dossier, ou entre deux résultats une fois la lecture des dates lancée.
     """
     tree = {category: {} for category in CATEGORY_LABELS}
-    candidates = list_media_files(source_dir, recursive, cancel_event)
+    candidates = []
+    for source_dir in _as_source_dir_list(source_dirs):
+        candidates.extend(list_media_files(source_dir, recursive, cancel_event))
 
     if not candidates:
         return tree

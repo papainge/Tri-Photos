@@ -184,6 +184,34 @@ class TestScanMedia(unittest.TestCase):
         self.assertEqual(tree["2024"]["02"]["01"], [p3])
         self.assertEqual(tree["2023"]["12"]["25"], [p4])
 
+    def test_accepts_a_list_of_several_source_directories(self):
+        # Plusieurs dossiers sources en une seule analyse (voir app_ui.add_extra_source) :
+        # les fichiers des deux dossiers doivent se retrouver mélangés dans le même arbre,
+        # comme s'ils venaient d'un seul et même dossier.
+        other_tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(other_tmpdir.cleanup)
+        other_dir = Path(other_tmpdir.name)
+
+        p1 = self._make_png("a.png", datetime(2024, 1, 15))
+        p2_path = other_dir / "b.png"
+        img = Image.new("RGB", (2, 2))
+        exif = img.getexif()
+        exif[pm.EXIF_DATE_TIME] = "2024:01:15 00:00:00"
+        img.save(p2_path, exif=exif)
+
+        tree = ps.scan_media([self.dir, other_dir])["photos"]
+
+        self.assertEqual(sorted(tree["2024"]["01"]["15"]), sorted([p1, p2_path]))
+
+    def test_still_accepts_a_single_path_not_wrapped_in_a_list(self):
+        # Compatibilité : la forme historique (un seul Path, pas une liste) doit
+        # continuer à fonctionner à l'identique.
+        p1 = self._make_png("a.png", datetime(2024, 1, 15))
+
+        tree = ps.scan_media(self.dir)["photos"]
+
+        self.assertEqual(tree["2024"]["01"]["15"], [p1])
+
     def test_groups_files_without_metadata_under_no_info(self):
         # PNG sans EXIF : get_media_date renvoie None, peu importe sa date de
         # modification (voir test_returns_none_when_photo_has_no_exif).
@@ -348,6 +376,35 @@ class TestScanMedia(unittest.TestCase):
                     ps.scan_media(self.dir, cancel_event=cancel_event)
         finally:
             timer.cancel()
+
+
+class TestCountMediaFiles(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.dir = Path(self.tmpdir.name)
+
+    def test_counts_a_single_source_directory(self):
+        Image.new("RGB", (2, 2)).save(self.dir / "a.jpg")
+        Image.new("RGB", (2, 2)).save(self.dir / "b.jpg")
+        (self.dir / "video.mp4").write_bytes(b"\x00" * 16)
+
+        counts = ps.count_media_files(self.dir)
+
+        self.assertEqual(counts, {"photos": 2, "videos": 1})
+
+    def test_sums_counts_across_a_list_of_source_directories(self):
+        other_tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(other_tmpdir.cleanup)
+        other_dir = Path(other_tmpdir.name)
+
+        Image.new("RGB", (2, 2)).save(self.dir / "a.jpg")
+        Image.new("RGB", (2, 2)).save(other_dir / "b.jpg")
+        (other_dir / "video.mp4").write_bytes(b"\x00" * 16)
+
+        counts = ps.count_media_files([self.dir, other_dir])
+
+        self.assertEqual(counts, {"photos": 2, "videos": 1})
 
 
 class TestListMediaFiles(unittest.TestCase):
