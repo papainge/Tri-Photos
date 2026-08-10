@@ -175,6 +175,40 @@ class TestWmvCreationDate(unittest.TestCase):
 
         self.assertIsNone(vm.get_wmv_creation_date(path))
 
+    def test_finds_file_properties_object_after_a_preceding_sub_object(self):
+        # _write_fake_wmv() (et tous les tests ci-dessus) place toujours le File
+        # Properties Object en premier (num_objects=1) : la ligne "offset += size" qui
+        # saute un sous-objet non pertinent pour passer au suivant n'était donc jamais
+        # exercée. Un fichier ASF réel place couramment d'autres objets avant lui
+        # (Header Extension Object, notamment).
+        path = self.dir / "video.wmv"
+        expected = datetime(2019, 4, 10, 8, 30, 0)
+        delta = expected - vm.FILETIME_EPOCH
+        creation_filetime = (delta.days * 86400 + delta.seconds) * 10_000_000
+
+        preceding_guid = bytes([0x11]) * 16  # GUID bidon, distinct de ASF_FILE_PROPERTIES_OBJECT_GUID
+        preceding_payload = b"\x00" * 8
+        preceding_object = preceding_guid + struct.pack("<Q", 24 + len(preceding_payload)) + preceding_payload
+
+        file_properties_data = (
+            b"\x00" * 16
+            + struct.pack("<Q", 0)
+            + struct.pack("<Q", creation_filetime)
+            + struct.pack("<Q", 0)
+        )
+        file_properties_object = (
+            vm.ASF_FILE_PROPERTIES_OBJECT_GUID
+            + struct.pack("<Q", 24 + len(file_properties_data))
+            + file_properties_data
+        )
+        header_specific = struct.pack("<IH", 2, 0)  # 2 sous-objets, réservé
+        header_object_content = header_specific + preceding_object + file_properties_object
+        header_object_size = 24 + len(header_object_content)
+        header = vm.ASF_HEADER_OBJECT_GUID + struct.pack("<Q", header_object_size) + header_object_content
+        path.write_bytes(header)
+
+        self.assertEqual(vm.get_wmv_creation_date(path), expected)
+
     def test_terminates_quickly_when_a_sub_object_declares_a_size_of_zero(self):
         # Régression : un sous-objet déclarant une taille de 0 ne fait plus avancer
         # offset, ce qui bouclait sur place jusqu'à num_objects avant le correctif —
