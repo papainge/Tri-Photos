@@ -1,4 +1,5 @@
 import os
+import shutil
 import struct
 import sys
 import tempfile
@@ -651,6 +652,51 @@ class TestCopyFiles(unittest.TestCase):
         self.assertEqual(len(errors), 2)
         self.assertEqual([p.name for p in (self.dest_dir / "ok").iterdir()], ["c.jpg"])
         self.assertFalse((self.dest_dir / "broken").exists() and any((self.dest_dir / "broken").iterdir()))
+
+    def test_copy_failure_during_transfer_records_error_and_keeps_processing(self):
+        # test_mkdir_failure... et test_index_failure... couvrent l'échec de mkdir() et
+        # de l'indexation du dossier de destination, mais pas un échec du transfert
+        # lui-même (shutil.copy2, disque plein/permissions refusées) une fois ces deux
+        # étapes réussies — c'est le except autour de transfer_file() dans copy_files()
+        # qui doit alors intervenir.
+        a, b, c = self._make_src_files(["a.jpg", "b.jpg", "c.jpg"])
+        destination_map = {("2024",): [a, b, c]}
+
+        original_copy2 = shutil.copy2
+
+        def fail_for_b_only(src, dst, *args, **kwargs):
+            if Path(src) == b:
+                raise OSError("disque plein")
+            return original_copy2(src, dst, *args, **kwargs)
+
+        with unittest.mock.patch.object(ps.shutil, "copy2", side_effect=fail_for_b_only):
+            done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
+
+        self.assertEqual(done, 3)
+        self.assertEqual(duplicates, 0)
+        self.assertEqual(len(errors), 1)
+        self.assertIn(str(b), errors[0])
+        self.assertTrue((self.dest_dir / "2024" / "a.jpg").exists())
+        self.assertTrue((self.dest_dir / "2024" / "c.jpg").exists())
+        self.assertFalse((self.dest_dir / "2024" / "b.jpg").exists())
+        self.assertTrue(b.exists())  # échec du transfert : la source n'est pas touchée
+
+    def test_move_failure_during_transfer_records_error_and_keeps_source(self):
+        # Même défaut de couverture que ci-dessus, côté "deplacer" (shutil.move) : un
+        # échec ne doit pas non plus supprimer la source ni interrompre le reste du lot.
+        a, b = self._make_src_files(["a.jpg", "b.jpg"])
+        destination_map = {("2024",): [a, b]}
+
+        with unittest.mock.patch.object(ps.shutil, "move", side_effect=OSError("permission refusee")):
+            done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "deplacer")
+
+        self.assertEqual(done, 2)
+        self.assertEqual(duplicates, 0)
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(a.exists())
+        self.assertTrue(b.exists())
+        self.assertFalse((self.dest_dir / "2024" / "a.jpg").exists())
+        self.assertFalse((self.dest_dir / "2024" / "b.jpg").exists())
 
     def test_on_progress_called_once_per_file_with_running_total(self):
         files = self._make_src_files(["a.jpg", "b.jpg", "c.jpg"])
