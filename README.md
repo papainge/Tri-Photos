@@ -216,7 +216,11 @@ d'y être sautés.
   Un fichier sans date exploitable dans ses métadonnées (GIF/BMP, MPG/MPEG, ou tout
   autre format dont la métadonnée de date est absente ou aberrante) n'est **pas** daté
   via sa date de modification : il est classé à part, dans un dossier `No Info`, au même
-  niveau que les dossiers Année (quel que soit le niveau de tri choisi).
+  niveau que les dossiers Année (quel que soit le niveau de tri choisi). Dans l'aperçu,
+  ce dossier se déplie pour indiquer la cause probable — format sans mécanisme de date
+  (GIF/BMP/MPG-MPEG), HEIC/HEIF nécessitant `pillow-heif` (voir ci-dessous), ou aucune
+  date exploitable trouvée pour les autres cas (tag absent sur ce fichier précis, date
+  rejetée car aberrante, fichier corrompu...).
 
 Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` :
 

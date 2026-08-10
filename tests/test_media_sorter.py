@@ -901,6 +901,63 @@ class TestAggregateTree(unittest.TestCase):
             self.assertEqual(result[ps.NO_INFO_LABEL], ["e"])
 
 
+class TestExplainNoInfo(unittest.TestCase):
+    def test_gif_and_bmp_are_unsupported_format(self):
+        self.assertEqual(ps.explain_no_info(Path("a.gif")), ps.NO_INFO_REASON_UNSUPPORTED_FORMAT)
+        self.assertEqual(ps.explain_no_info(Path("a.bmp")), ps.NO_INFO_REASON_UNSUPPORTED_FORMAT)
+
+    def test_mpg_and_mpeg_are_unsupported_format(self):
+        self.assertEqual(ps.explain_no_info(Path("a.mpg")), ps.NO_INFO_REASON_UNSUPPORTED_FORMAT)
+        self.assertEqual(ps.explain_no_info(Path("a.mpeg")), ps.NO_INFO_REASON_UNSUPPORTED_FORMAT)
+
+    def test_heic_without_plugin_flags_the_missing_plugin(self):
+        with unittest.mock.patch.object(ps, "HEIF_SUPPORTED", False):
+            self.assertEqual(ps.explain_no_info(Path("a.heic")), ps.NO_INFO_REASON_HEIF_PLUGIN_MISSING)
+            self.assertEqual(ps.explain_no_info(Path("a.heif")), ps.NO_INFO_REASON_HEIF_PLUGIN_MISSING)
+
+    def test_heic_with_plugin_falls_back_to_generic_reason(self):
+        # Le plugin est actif : rien de plus à dire que pour n'importe quel autre format
+        # pris en charge sans date exploitable sur ce fichier précis.
+        with unittest.mock.patch.object(ps, "HEIF_SUPPORTED", True):
+            self.assertEqual(ps.explain_no_info(Path("a.heic")), ps.NO_INFO_REASON_NO_USABLE_DATE)
+
+    def test_other_supported_formats_get_the_generic_reason(self):
+        self.assertEqual(ps.explain_no_info(Path("a.jpg")), ps.NO_INFO_REASON_NO_USABLE_DATE)
+        self.assertEqual(ps.explain_no_info(Path("a.mp4")), ps.NO_INFO_REASON_NO_USABLE_DATE)
+
+    def test_extension_matching_is_case_insensitive(self):
+        self.assertEqual(ps.explain_no_info(Path("A.GIF")), ps.NO_INFO_REASON_UNSUPPORTED_FORMAT)
+
+
+class TestGroupNoInfoByReason(unittest.TestCase):
+    def test_groups_flat_no_info_list_by_reason(self):
+        node = {"2024": {"01": ["a"]}, ps.NO_INFO_LABEL: [Path("a.gif"), Path("b.mpg"), Path("c.jpg")]}
+
+        result = ps.group_no_info_by_reason(node)
+
+        self.assertEqual(result["2024"], {"01": ["a"]})  # branches sans NO_INFO_LABEL inchangées
+        self.assertEqual(
+            sorted(result[ps.NO_INFO_LABEL][ps.NO_INFO_REASON_UNSUPPORTED_FORMAT], key=str),
+            sorted([Path("a.gif"), Path("b.mpg")], key=str),
+        )
+        self.assertEqual(result[ps.NO_INFO_LABEL][ps.NO_INFO_REASON_NO_USABLE_DATE], [Path("c.jpg")])
+
+    def test_recurses_into_nested_dicts(self):
+        node = {"Photos": {ps.NO_INFO_LABEL: [Path("a.gif")]}, "Vidéos": {"2024": ["v"]}}
+
+        result = ps.group_no_info_by_reason(node)
+
+        self.assertEqual(
+            result["Photos"][ps.NO_INFO_LABEL][ps.NO_INFO_REASON_UNSUPPORTED_FORMAT], [Path("a.gif")]
+        )
+        self.assertEqual(result["Vidéos"], {"2024": ["v"]})
+
+    def test_is_a_noop_without_no_info(self):
+        node = {"2024": {"01": {"15": ["a", "b"]}}}
+
+        self.assertEqual(ps.group_no_info_by_reason(node), node)
+
+
 class TestMergeMediaTrees(unittest.TestCase):
     def test_merges_photos_and_videos_into_one_tree(self):
         tree = {
@@ -948,6 +1005,34 @@ class TestBuildDisplayTree(unittest.TestCase):
         display = ps.build_display_tree(tree, "jour", separate_media=True)
 
         self.assertEqual(set(display.keys()), {"Photos"})
+
+    def test_groups_no_info_files_by_reason_when_not_separated(self):
+        tree = {
+            "photos": {ps.NO_INFO_LABEL: [Path("a.gif"), Path("b.jpg")]},
+            "videos": {},
+        }
+
+        display = ps.build_display_tree(tree, "jour", separate_media=False)
+
+        self.assertEqual(
+            display[ps.NO_INFO_LABEL][ps.NO_INFO_REASON_UNSUPPORTED_FORMAT], [Path("a.gif")]
+        )
+        self.assertEqual(
+            display[ps.NO_INFO_LABEL][ps.NO_INFO_REASON_NO_USABLE_DATE], [Path("b.jpg")]
+        )
+
+    def test_groups_no_info_files_by_reason_when_separated(self):
+        tree = {
+            "photos": {ps.NO_INFO_LABEL: [Path("a.gif")]},
+            "videos": {},
+        }
+
+        display = ps.build_display_tree(tree, "jour", separate_media=True)
+
+        self.assertEqual(
+            display["Photos"][ps.NO_INFO_LABEL][ps.NO_INFO_REASON_UNSUPPORTED_FORMAT],
+            [Path("a.gif")],
+        )
 
 
 class TestBuildDestinationMap(unittest.TestCase):

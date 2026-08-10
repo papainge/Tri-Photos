@@ -347,6 +347,43 @@ class TestRefreshTreeview(AppTestCase):
         self.assertEqual(self.app.status_label.cget("text"), "Aucune photo ou vidéo trouvée dans ce dossier.")
         self.assertEqual(str(self.app.create_button.cget("state")), "disabled")
 
+    def test_no_info_node_is_split_into_reason_children(self):
+        self.app.tree_data = {
+            "photos": {ms.NO_INFO_LABEL: [self.src_dir / "sans_date.gif"]},
+            "videos": {},
+        }
+
+        self.app._refresh_treeview()
+
+        no_info_node = self.app.treeview.get_children()[0]
+        self.assertEqual(self.app.treeview.item(no_info_node, "text"), ms.NO_INFO_LABEL)
+        reason_nodes = self.app.treeview.get_children(no_info_node)
+        self.assertEqual(len(reason_nodes), 1)
+        # Régression : les raisons de No Info tombent à la même profondeur que les
+        # dossiers de mois habituels (ici month_depth=1, non séparé) — sans le garde-fou
+        # in_no_info de _populate_tree, ce libellé serait passé à tort par
+        # month_folder_name (ex: "Format sans date exploitable...-Format sans date...").
+        self.assertEqual(self.app.treeview.item(reason_nodes[0], "text"), ms.NO_INFO_REASON_UNSUPPORTED_FORMAT)
+
+    def test_status_mentions_no_info_files_when_present(self):
+        photo = self._make_photo("a.jpg")
+        self.app.tree_data = {
+            "photos": {"2024": {"01": {"15": [photo]}}, ms.NO_INFO_LABEL: [self.src_dir / "x.gif"]},
+            "videos": {},
+        }
+
+        self.app._refresh_treeview()
+
+        self.assertIn("1 sans date exploitable", self.app.status_label.cget("text"))
+        self.assertIn("No Info", self.app.status_label.cget("text"))
+
+    def test_status_omits_no_info_hint_when_absent(self):
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": ["a.jpg", "b.jpg"]}}}, "videos": {}}
+
+        self.app._refresh_treeview()
+
+        self.assertNotIn("sans date exploitable", self.app.status_label.cget("text"))
+
     def test_on_options_change_is_a_noop_without_tree_data(self):
         self.app.tree_data = {}
         self.app.total_label.config(text="valeur figée")

@@ -30,8 +30,9 @@ from tkinter import ttk, filedialog, messagebox
 try:
     import pillow_heif
     pillow_heif.register_heif_opener()
+    HEIF_SUPPORTED = True
 except ImportError:
-    pass
+    HEIF_SUPPORTED = False
 
 from photo_metadata import get_photo_exif_date
 from video_metadata import get_video_creation_date
@@ -53,6 +54,61 @@ MEDIA_CATEGORY_BY_EXTENSION = {
 }
 
 NO_INFO_LABEL = "No Info"
+
+# Causes de classement sous NO_INFO_LABEL que explain_no_info() sait distinguer sans
+# rouvrir/reparser le fichier (voir explain_no_info) : uniquement les deux cas connus et
+# actionnables par l'utilisateur, le reste étant regroupé sous un motif générique.
+UNSUPPORTED_DATE_EXTENSIONS = {".gif", ".bmp", ".mpg", ".mpeg"}
+HEIF_EXTENSIONS = {".heic", ".heif"}
+
+NO_INFO_REASON_UNSUPPORTED_FORMAT = "Format sans date exploitable (GIF, BMP, MPG/MPEG)"
+NO_INFO_REASON_HEIF_PLUGIN_MISSING = "HEIC/HEIF : installez pillow-heif pour lire sa date"
+NO_INFO_REASON_NO_USABLE_DATE = "Aucune date exploitable dans les métadonnées"
+
+
+def explain_no_info(path: Path) -> str:
+    """Explique, pour l'affichage, pourquoi un fichier a été classé sous NO_INFO_LABEL
+    (get_media_date a renvoyé None pour lui).
+
+    Réponse best-effort à but indicatif seulement : distinguer précisément "tag de date
+    absent sur ce fichier précis" de "date rejetée par le filtre de plausibilité" ou
+    "fichier corrompu" supposerait de dupliquer la logique interne de chaque parseur
+    (photo_metadata.py, video_metadata.py — en particulier les quatre parseurs vidéo,
+    chacun avec son propre format de conteneur). Seules les deux causes connues et sur
+    lesquelles l'utilisateur peut agir sont donc isolées ; tout le reste tombe dans un
+    motif générique.
+    """
+    suffix = path.suffix.lower()
+    if suffix in UNSUPPORTED_DATE_EXTENSIONS:
+        return NO_INFO_REASON_UNSUPPORTED_FORMAT
+    if suffix in HEIF_EXTENSIONS and not HEIF_SUPPORTED:
+        return NO_INFO_REASON_HEIF_PLUGIN_MISSING
+    return NO_INFO_REASON_NO_USABLE_DATE
+
+
+def group_no_info_by_reason(node: dict) -> dict:
+    """Parcourt un arbre d'affichage (voir build_display_tree) et remplace, à tout
+    niveau où elle apparaît, la liste plate de NO_INFO_LABEL par un sous-arbre
+    {raison: [fichiers]} (voir explain_no_info) — pour que l'aperçu explique pourquoi ces
+    fichiers n'ont pas pu être datés plutôt que de se contenter de les compter.
+
+    Ne modifie que l'arbre affiché : la copie continue de traiter NO_INFO_LABEL comme un
+    seul dossier (voir build_destination_map, qui travaille sur l'arbre brut, jamais sur
+    celui-ci) — expliquer la cause est un aspect purement visuel, pas une règle de
+    classement des fichiers.
+    """
+    result = {}
+    for key, value in node.items():
+        if key == NO_INFO_LABEL and isinstance(value, list):
+            grouped = {}
+            for path in value:
+                grouped.setdefault(explain_no_info(path), []).append(path)
+            result[key] = grouped
+        elif isinstance(value, dict):
+            result[key] = group_no_info_by_reason(value)
+        else:
+            result[key] = value
+    return result
 
 
 def get_media_date(path: Path):
@@ -290,14 +346,17 @@ def format_duration(seconds: float) -> str:
 
 def build_display_tree(tree: dict, level: str, separate_media: bool) -> dict:
     """Construit l'arbre à afficher dans l'aperçu, selon le niveau de tri et le choix
-    de séparer ou non Photos et Vidéos à la racine."""
+    de séparer ou non Photos et Vidéos à la racine. Le dossier NO_INFO_LABEL, s'il est
+    présent, est en plus sous-divisé par cause probable (voir group_no_info_by_reason)."""
     if separate_media:
-        return {
+        display = {
             CATEGORY_LABELS[category]: aggregate_tree(category_tree, level)
             for category, category_tree in tree.items()
             if count_files(category_tree) > 0
         }
-    return aggregate_tree(merge_media_trees(tree), level)
+    else:
+        display = aggregate_tree(merge_media_trees(tree), level)
+    return group_no_info_by_reason(display)
 
 
 def build_destination_map(tree: dict, level: str, separate_media: bool) -> dict:
@@ -869,19 +928,37 @@ class MediaSorterApp:
             self.total_label.config(
                 text=f"Total : {total} fichier(s)  ({photo_count} photo(s), {video_count} vidéo(s)){duration_text}"
             )
-            self.status_label.config(text=f"{total} fichier(s) trouvé(s). Choisissez un dossier de destination pour les ranger.")
+            no_info_count = sum(
+                len(category_tree.get(NO_INFO_LABEL, [])) for category_tree in self.tree_data.values()
+            )
+            if no_info_count:
+                status_text = (
+                    f"{total} fichier(s) trouvé(s), dont {no_info_count} sans date exploitable "
+                    "(développez « No Info » dans l'arborescence pour savoir pourquoi). "
+                    "Choisissez un dossier de destination pour les ranger."
+                )
+            else:
+                status_text = f"{total} fichier(s) trouvé(s). Choisissez un dossier de destination pour les ranger."
+            self.status_label.config(text=status_text)
             self.create_button.config(state="normal")
 
-    def _populate_tree(self, parent, node, depth, month_depth):
+    def _populate_tree(self, parent, node, depth, month_depth, in_no_info=False):
+        # in_no_info évite d'appliquer le formatage "mois" (month_folder_name) aux
+        # raisons affichées sous NO_INFO_LABEL (voir group_no_info_by_reason) : ces
+        # raisons peuvent tomber, par coïncidence de profondeur, au même niveau que les
+        # dossiers de mois habituels (ex: non séparé, month_depth=1) sans en être.
         for key in sorted(node):
             value = node[key]
-            label = month_folder_name(key) if depth == month_depth else key
+            is_no_info_node = key == NO_INFO_LABEL
+            label = key if (in_no_info or is_no_info_node) else (
+                month_folder_name(key) if depth == month_depth else key
+            )
             count = count_files(value)
             if isinstance(value, list):
                 self.treeview.insert(parent, "end", text=label, values=(count,), open=(depth == 0))
             else:
                 child_node = self.treeview.insert(parent, "end", text=label, values=(count,), open=(depth == 0))
-                self._populate_tree(child_node, value, depth + 1, month_depth)
+                self._populate_tree(child_node, value, depth + 1, month_depth, in_no_info=in_no_info or is_no_info_node)
 
     def start_copy(self):
         if self._scan_cancel_event is not None:
