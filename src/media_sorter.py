@@ -1173,7 +1173,7 @@ class MediaSorterApp:
 
 def main():
     root = tk.Tk()
-    app = MediaSorterApp(root)
+    MediaSorterApp(root)
     root.mainloop()
 
 

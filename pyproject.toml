@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py39"
+# 125 : la plus longue ligne existante (123) tient sans reformater tout le code actuel.
+line-length = 125
+
+[tool.ruff.lint]
+# Reste volontairement au périmètre pyflakes (bugs réels : imports/variables inutilisés,
+# noms indéfinis...) plutôt que d'activer les extensions de style (bugbear, bandit,
+# datetimez...) : celles-ci contrediraient des choix déjà faits et documentés dans le
+# code (ex. `except Exception` volontairement large dans get_media_date).
+select = ["E", "F"]

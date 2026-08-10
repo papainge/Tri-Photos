@@ -1,5 +1,4 @@
 import importlib.util
-import os
 import subprocess
 import sys
 import tempfile
@@ -10,9 +9,9 @@ from pathlib import Path
 SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 sys.path.insert(0, SRC_DIR)
 
-from PIL import ExifTags, Image
+from PIL import ExifTags, Image  # noqa: E402 — après sys.path.insert, volontairement
 
-import photo_metadata as pm
+import photo_metadata as pm  # noqa: E402
 
 HEIC_AVAILABLE = importlib.util.find_spec("pillow_heif") is not None
 
