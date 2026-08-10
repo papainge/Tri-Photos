@@ -165,6 +165,13 @@ def list_media_files(source_dir: Path, recursive: bool = True, cancel_event: thr
     Utilisé par scan_media (avant la lecture des dates, potentiellement longue) et par
     count_media_files (comptage rapide pour donner un ordre de grandeur avant de lancer
     l'analyse complète).
+
+    Ignore les liens symboliques (et jonctions Windows) : copy_files/transfer_file
+    suivraient sinon le lien jusqu'à sa cible réelle (comportement par défaut de
+    shutil.copy2 et open()), ce qui recopierait le contenu d'un fichier potentiellement
+    situé hors de source_dir vers la destination — un lien nommé comme une photo mais
+    pointant ailleurs sur le disque ne doit pas pouvoir faire sortir un fichier
+    quelconque de son emplacement d'origine.
     """
     candidates = []
     if recursive:
@@ -173,8 +180,12 @@ def list_media_files(source_dir: Path, recursive: bool = True, cancel_event: thr
                 if cancel_event is not None and cancel_event.is_set():
                     raise ScanCancelled()
                 category = MEDIA_CATEGORY_BY_EXTENSION.get(Path(filename).suffix.lower())
-                if category is not None:
-                    candidates.append((Path(dirpath) / filename, category))
+                if category is None:
+                    continue
+                candidate_path = Path(dirpath) / filename
+                if candidate_path.is_symlink():
+                    continue
+                candidates.append((candidate_path, category))
     else:
         try:
             with os.scandir(source_dir) as it:
@@ -182,7 +193,7 @@ def list_media_files(source_dir: Path, recursive: bool = True, cancel_event: thr
                     if cancel_event is not None and cancel_event.is_set():
                         raise ScanCancelled()
                     try:
-                        if not entry.is_file():
+                        if entry.is_symlink() or not entry.is_file():
                             continue
                     except OSError:
                         continue  # supprimé/inaccessible entre l'énumération et cette vérification

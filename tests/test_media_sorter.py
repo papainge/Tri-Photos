@@ -381,6 +381,38 @@ class TestListMediaFiles(unittest.TestCase):
 
         self.assertEqual([path.name for path, _category in candidates], ["root.jpg"])
 
+    def _make_symlink_to_outside_file(self, link_name):
+        # Fichier réel situé hors de self.dir : simule un lien qui, s'il était suivi à
+        # la copie, ferait sortir un contenu quelconque de son emplacement d'origine.
+        outside_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(outside_dir.cleanup)
+        target = Path(outside_dir.name) / "secret.txt"
+        target.write_text("pas une photo")
+        link = self.dir / link_name
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("liens symboliques non supportés dans cet environnement (droits insuffisants)")
+        return link
+
+    def test_recursive_ignores_symlinked_file(self):
+        self._make_symlink_to_outside_file("photo.jpg")
+        real_photo = self.dir / "real.jpg"
+        Image.new("RGB", (2, 2)).save(real_photo)
+
+        candidates = ps.list_media_files(self.dir, recursive=True)
+
+        self.assertEqual(candidates, [(real_photo, "photos")])
+
+    def test_non_recursive_ignores_symlinked_file(self):
+        self._make_symlink_to_outside_file("photo.jpg")
+        real_photo = self.dir / "real.jpg"
+        Image.new("RGB", (2, 2)).save(real_photo)
+
+        candidates = ps.list_media_files(self.dir, recursive=False)
+
+        self.assertEqual(candidates, [(real_photo, "photos")])
+
 
 class TestFileHash(unittest.TestCase):
     def setUp(self):
