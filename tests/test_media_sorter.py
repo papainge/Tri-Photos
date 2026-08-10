@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 import unittest.mock
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -232,6 +233,18 @@ class TestScanMedia(unittest.TestCase):
         for path, date in expected_dates.items():
             year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
             self.assertIn(path, tree[year][month][day])
+
+    def test_forwards_max_workers_to_the_thread_pool(self):
+        # max_workers n'est jamais passé par l'appelant réel (l'UI s'en tient toujours au
+        # défaut) ni par les autres tests d'ici : rien ne prouvait que la valeur fournie
+        # atteignait bien ThreadPoolExecutor plutôt que d'être silencieusement ignorée.
+        self._make_png("a.png", datetime(2024, 1, 1))
+
+        with unittest.mock.patch.object(ps, "ThreadPoolExecutor", wraps=ThreadPoolExecutor) as mock_executor:
+            tree = ps.scan_media(self.dir, max_workers=3)
+
+        mock_executor.assert_called_once_with(max_workers=3)
+        self.assertEqual(ps.count_files(tree), 1)
 
     def test_skips_file_that_disappears_during_scan_without_failing_the_rest(self):
         # Régression : un seul fichier devenu inaccessible entre l'énumération et la
