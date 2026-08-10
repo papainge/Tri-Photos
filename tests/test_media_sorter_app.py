@@ -27,6 +27,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+# Avant l'import : redirige les logs de media_sorter hors du vrai dossier de logs de la
+# machine qui exécute les tests (voir media_sorter._log_directory et test_load.py).
+os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 

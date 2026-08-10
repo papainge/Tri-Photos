@@ -13,6 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+# Avant l'import : redirige les logs de media_sorter hors du vrai dossier de logs de la
+# machine qui exécute les tests (voir media_sorter._log_directory et test_load.py).
+os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
+
 from PIL import Image
 
 import media_sorter as ps
@@ -85,14 +89,18 @@ class TestGetMediaDate(unittest.TestCase):
         # importé sa propre référence ("from photo_metadata import get_photo_exif_date"),
         # patcher pm.get_photo_exif_date ne l'affecterait pas.
         with unittest.mock.patch.object(ps, "get_photo_exif_date", side_effect=OSError("fichier corrompu")):
-            self.assertIsNone(ps.get_media_date(path))
+            # L'exception absorbée n'est pas pour autant silencieuse : elle doit rester
+            # diagnosticable a posteriori (voir ps.logger, écrit aussi dans un fichier).
+            with self.assertLogs(ps.logger, level="WARNING"):
+                self.assertIsNone(ps.get_media_date(path))
 
     def test_returns_none_when_video_metadata_parser_raises(self):
         path = self.dir / "video.mp4"
         path.write_bytes(b"\x00" * 16)
 
         with unittest.mock.patch.object(ps, "get_video_creation_date", side_effect=OSError("fichier corrompu")):
-            self.assertIsNone(ps.get_media_date(path))
+            with self.assertLogs(ps.logger, level="WARNING"):
+                self.assertIsNone(ps.get_media_date(path))
 
     def test_filename_fallback_disabled_by_default_even_with_a_dated_name(self):
         path = self.dir / "IMG_20230715_143022.png"
@@ -879,7 +887,10 @@ class TestCopyFiles(unittest.TestCase):
             return original_copy2(src, dst, *args, **kwargs)
 
         with unittest.mock.patch.object(ps.shutil, "copy2", side_effect=fail_for_b_only):
-            done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
+            # L'échec doit rester diagnosticable a posteriori, pas seulement remonté dans
+            # errors (voir ps.logger, écrit aussi dans un fichier).
+            with self.assertLogs(ps.logger, level="WARNING"):
+                done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
 
         self.assertEqual(done, 3)
         self.assertEqual(duplicates, 0)

@@ -16,8 +16,10 @@ Si ce n'est pas le cas, voir <https://www.gnu.org/licenses/>.
 """
 
 import hashlib
+import logging
 import os
 import shutil
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,6 +38,53 @@ except ImportError:
 from media_date_utils import date_from_filename
 from photo_metadata import get_photo_exif_date
 from video_metadata import get_video_creation_date
+
+
+def _log_directory() -> Path:
+    """Dossier de logs, selon la plateforme (Windows : %LOCALAPPDATA%/TriPhotos ; macOS :
+    ~/Library/Logs/TriPhotos ; Linux/autre : ~/.local/share/TriPhotos).
+
+    TRIPHOTOS_LOG_DIR, si définie, prend le pas sur tout le reste : utilisée par les
+    tests pour ne jamais écrire dans le vrai dossier de logs de la machine qui les
+    exécute (voir tests/test_load.py, test_media_sorter.py, test_media_sorter_app.py).
+    """
+    override = os.environ.get("TRIPHOTOS_LOG_DIR")
+    if override:
+        return Path(override)
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        return Path(local_appdata) / "TriPhotos"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Logs" / "TriPhotos"
+    return Path.home() / ".local" / "share" / "TriPhotos"
+
+
+def _configure_logging() -> logging.Logger:
+    """Journalise dans un fichier local les exceptions inattendues rencontrées pendant
+    l'analyse ou la copie (voir get_media_date, copy_files, _scan_worker, _copy_worker) :
+    sans ça, un fichier classé à tort dans No Info ou une copie en échec ne laisse aucune
+    trace au-delà du message affiché une fois à l'écran, rendant tout diagnostic a
+    posteriori impossible (bug de parseur ? fichier réellement corrompu ? accès disque ?).
+
+    N'affecte jamais le comportement utilisateur existant (classement en No Info, message
+    d'erreur) : purement un journal de diagnostic en plus. Si le dossier de logs n'est pas
+    accessible en écriture, l'application continue simplement sans journalisation plutôt
+    que d'échouer pour cette seule raison.
+    """
+    logger = logging.getLogger("triphotos")
+    logger.setLevel(logging.WARNING)
+    try:
+        log_dir = _log_directory()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "triphotos.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(handler)
+    except OSError:
+        pass
+    return logger
+
+
+logger = _configure_logging()
 
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif",
@@ -133,11 +182,13 @@ def get_media_date(path: Path, use_filename_fallback: bool = False):
         try:
             date = get_photo_exif_date(path)
         except Exception:
+            logger.warning("Lecture de la date EXIF échouée pour %s", path, exc_info=True)
             date = None
     else:
         try:
             date = get_video_creation_date(path)
         except Exception:
+            logger.warning("Lecture de la date vidéo échouée pour %s", path, exc_info=True)
             date = None
     if date is None and use_filename_fallback:
         date = date_from_filename(path.name)
@@ -641,6 +692,7 @@ def copy_files(
             # moment du mkdir mais plus au moment de lister son contenu — partage réseau
             # débranché entre les deux) ne doit pas abandonner toute la copie : seuls les
             # fichiers de CE dossier sont comptés en erreur, les autres continuent.
+            logger.warning("Dossier de destination inaccessible : %s", target_dir, exc_info=True)
             for src_file in files:
                 if cancel_event is not None and cancel_event.is_set():
                     raise CopyCancelled(done, duplicates, errors)
@@ -662,6 +714,7 @@ def copy_files(
                 if result == "duplicate":
                     duplicates += 1
             except Exception as exc:
+                logger.warning("Échec du transfert de %s", src_file, exc_info=True)
                 errors.append(f"{src_file}: {exc}")
             done += 1
             if on_progress is not None:
@@ -951,6 +1004,7 @@ class MediaSorterApp:
             self.root.after(0, self._scan_cancelled)
             return
         except Exception as exc:
+            logger.exception("Échec de l'analyse de %s", source_path)
             self.root.after(0, self._scan_failed, exc)
             return
         self.root.after(0, self._scan_done, tree, source_path)
@@ -1121,6 +1175,7 @@ class MediaSorterApp:
             self.root.after(0, self._copy_cancelled, done, duplicates, errors, mode)
             return
         except Exception as exc:
+            logger.exception("Échec de la copie vers %s", dest_path)
             self.root.after(0, self._copy_failed, exc)
             return
         self.root.after(0, self._copy_done, done, duplicates, errors, mode)
