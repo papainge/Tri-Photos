@@ -215,7 +215,8 @@ Chaque module de `src/` a son fichier de tests dédié (module `unittest`) :
   isolé dans un sous-processus dédié : `register_heif_opener()` s'enregistre
   globalement pour tout l'interpréteur, sans possibilité de l'annuler, ce qui
   contaminerait les autres tests du même process s'il tournait dans le process
-  principal). Ces deux tests sont sautés si `pillow-heif` n'est pas installé
+  principal). Ces deux tests sont sautés si `pillow-heif` n'est pas installé. Couvre
+  aussi la lecture EXIF des formats RAW (CR2/NEF/ARW)
 - `tests/test_video_metadata.py` — parseurs MP4/AVI/WMV/MKV, et leurs tests de charge
   (fichiers vidéo de centaines de Mo, générés en fichiers creux/sparse pour rester
   rapides à créer, qui vérifient que chaque parseur saute bien par-dessus les données
@@ -253,9 +254,16 @@ d'y être sautés.
 
 ## Formats supportés
 
-- **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF. La date EXIF (DateTimeOriginal,
-  puis DateTimeDigitized, puis DateTime) est lue quand le format et le fichier la
-  portent (JPEG, TIFF, HEIC/HEIF, PNG, WEBP) ; GIF et BMP n'ont pas de mécanisme EXIF.
+- **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF, et les RAW CR2 (Canon), NEF
+  (Nikon), ARW (Sony). La date EXIF (DateTimeOriginal, puis DateTimeDigitized, puis
+  DateTime) est lue quand le format et le fichier la portent (JPEG, TIFF, HEIC/HEIF,
+  PNG, WEBP, RAW) ; GIF et BMP n'ont pas de mécanisme EXIF. Les formats RAW ci-dessus
+  sont construits sur le conteneur TIFF : Pillow les ouvre par simple détection de
+  contenu, exactement comme un `.tiff`, et permet d'y lire l'EXIF sans dépendance
+  supplémentaire ni décodage de l'image elle-même (inutile ici : le fichier est copié
+  tel quel, jamais affiché). Un fichier RAW que Pillow ne parvient malgré tout pas à
+  ouvrir (variante propriétaire non reconnue) est classé dans `No Info` comme n'importe
+  quel autre format illisible.
 - **Vidéos** : MP4, MOV, M4V, 3GP, AVI, WMV, MKV, WEBM, MPG/MPEG. La date de création
   embarquée est lue directement, sans dépendance externe, pour chacun de ces conteneurs
   (sauf MPG/MPEG, qui n'a pas d'équivalent standardisé) :

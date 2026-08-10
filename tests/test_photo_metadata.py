@@ -88,6 +88,39 @@ class TestGetPhotoExifDate(unittest.TestCase):
         self.assertIsNone(pm.get_photo_exif_date(path))
 
 
+class TestRawFormatsSupport(unittest.TestCase):
+    """CR2 (Canon), NEF (Nikon), ARW (Sony) sont construits sur le conteneur TIFF, que
+    Pillow identifie par contenu (indépendamment de l'extension du fichier) exactement
+    comme .tiff/.tif — voir media_sorter.IMAGE_EXTENSIONS. Aucun code de lecture dédié
+    n'est nécessaire : get_photo_exif_date les traite comme n'importe quel autre format
+    ouvrable par Pillow."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.dir = Path(self.tmpdir.name)
+
+    def _save_raw_style(self, path, tag_id, value):
+        # Pillow n'écrit le sous-IFD Exif d'un fichier TIFF que si son pointeur
+        # (ExifTags.IFD.Exif, 34665) est explicitement enregistré comme clé de premier
+        # niveau — contrairement à JPEG/PNG, où exif.tobytes() (voir
+        # _save_with_exif_date) s'en charge tout seul. D'où ce battage spécifique,
+        # réservé aux formats construits sur le conteneur TIFF (CR2/NEF/ARW ici).
+        img = Image.new("RGB", (2, 2), color="red")
+        exif = img.getexif()
+        exif.get_ifd(ExifTags.IFD.Exif)[tag_id] = value
+        exif[ExifTags.IFD.Exif] = 0
+        img.save(path, format="TIFF", exif=exif)
+
+    def test_reads_date_time_original_from_cr2_nef_arw(self):
+        for ext in (".cr2", ".nef", ".arw"):
+            with self.subTest(ext=ext):
+                path = self.dir / f"photo{ext}"
+                self._save_raw_style(path, pm.EXIF_DATE_TIME_ORIGINAL, "2024:03:10 08:00:00")
+
+                self.assertEqual(pm.get_photo_exif_date(path), datetime(2024, 3, 10, 8, 0, 0))
+
+
 class TestHeicSupport(unittest.TestCase):
     """Un vrai fichier HEIC/HEIF, avec et sans le plugin optionnel pillow-heif actif
     (voir README : sans lui, Pillow seul ne sait pas décoder ce conteneur).

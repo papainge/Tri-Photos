@@ -453,6 +453,41 @@ class TestPreferences(unittest.TestCase):
         self.assertEqual(ps.load_preferences(), ps.DEFAULT_PREFERENCES)
 
 
+class TestRawFormatsSupport(unittest.TestCase):
+    """CR2 (Canon), NEF (Nikon), ARW (Sony) sont construits sur le conteneur TIFF :
+    reconnus ici comme une extension "photos" de plus, sans code de lecture dédié — la
+    lecture de date passe par le même chemin générique Pillow que .tiff/.tif (voir
+    photo_metadata.py et test_photo_metadata.py pour la lecture EXIF elle-même). Aucun
+    décodage de pixels n'est jamais nécessaire ici : transfer_file copie le fichier tel
+    quel, indépendamment de sa capacité à être affiché."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.dir = Path(self.tmpdir.name)
+
+    def test_raw_extensions_are_classified_as_photos(self):
+        for ext in (".cr2", ".nef", ".arw"):
+            with self.subTest(ext=ext):
+                self.assertEqual(ps.MEDIA_CATEGORY_BY_EXTENSION[ext], "photos")
+
+    def test_scan_media_dates_a_raw_file_from_its_exif_sub_ifd(self):
+        # Un vrai appareil range DateTimeOriginal dans le sous-IFD Exif, pas dans l'IFD0
+        # (voir photo_metadata.py) : Pillow n'écrit ce sous-IFD pour un fichier TIFF que
+        # si le pointeur ExifTags.IFD.Exif est explicitement enregistré comme clé de
+        # premier niveau (contrairement à JPEG/PNG, où exif.tobytes() s'en charge seul).
+        path = self.dir / "photo.cr2"
+        img = Image.new("RGB", (2, 2), color="red")
+        exif = img.getexif()
+        exif.get_ifd(pm.ExifTags.IFD.Exif)[pm.EXIF_DATE_TIME_ORIGINAL] = "2024:03:10 08:00:00"
+        exif[pm.ExifTags.IFD.Exif] = 0
+        img.save(path, format="TIFF", exif=exif)
+
+        tree = ps.scan_media(self.dir)
+
+        self.assertEqual(tree["photos"]["2024"]["03"]["10"], [path])
+
+
 class TestListMediaFiles(unittest.TestCase):
     # list_media_files() est passée de Path.rglob()/glob() + path.is_file() à
     # os.walk()/os.scandir() (voir le module) : ces tests vérifient que la distinction

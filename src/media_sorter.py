@@ -156,6 +156,12 @@ def save_preferences(sort_level: str, separate_media: bool, copy_mode: str) -> N
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif",
     ".heic", ".heif", ".webp",
+    # RAW (CR2 Canon, NEF Nikon, ARW Sony) : aucun décodage d'image nécessaire ici (le
+    # transfert copie/déplace le fichier tel quel, voir transfer_file), seule la lecture
+    # de date nous concerne. Ces formats étant construits sur le conteneur TIFF, Pillow
+    # les ouvre via le même chemin générique que .tiff/.tif (voir photo_metadata.py) et y
+    # lit l'EXIF DateTimeOriginal normalement, sans dépendance supplémentaire.
+    ".cr2", ".nef", ".arw",
 }
 
 VIDEO_EXTENSIONS = {
