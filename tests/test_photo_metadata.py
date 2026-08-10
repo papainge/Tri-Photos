@@ -75,9 +75,9 @@ class TestGetPhotoExifDate(unittest.TestCase):
 
     def test_returns_none_for_implausible_date(self):
         # Un appareil dont l'horloge n'a jamais été réglée renvoie souvent l'époque Unix
-        # (1970) ou une date fixe d'usine : la date de modification du fichier est plus
-        # fiable dans ce cas (voir media_date_utils.is_plausible_media_date, déjà
-        # appliqué côté vidéo).
+        # (1970) ou une date fixe d'usine : cette date n'est pas fiable et le fichier
+        # doit être traité comme sans métadonnée (voir media_date_utils.is_plausible_media_date,
+        # aussi appliqué côté vidéo).
         path = self.dir / "photo.jpg"
         self._save_with_exif_date(path, pm.EXIF_DATE_TIME_ORIGINAL, "1970:01:01 00:00:00", in_sub_ifd=True)
 

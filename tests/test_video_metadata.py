@@ -71,6 +71,17 @@ class TestMp4CreationDate(unittest.TestCase):
 
         self.assertIsNone(vm.get_mp4_creation_date(path))
 
+    def test_returns_none_for_implausible_date(self):
+        # Une caméra dont l'horloge n'a jamais été réglée renvoie souvent l'époque Unix
+        # (1970) : is_plausible_media_date() doit rejeter cette date, pas seulement
+        # creation_time <= 0 (voir test_returns_none_when_creation_time_is_zero, un cas
+        # distinct).
+        path = self.dir / "video.mp4"
+        creation_time = int((datetime(1970, 1, 1) - vm.MP4_EPOCH).total_seconds())
+        self._write_fake_mp4(path, creation_time)
+
+        self.assertIsNone(vm.get_mp4_creation_date(path))
+
 
 class TestAviCreationDate(unittest.TestCase):
     def setUp(self):
@@ -107,6 +118,12 @@ class TestAviCreationDate(unittest.TestCase):
     def test_returns_none_for_malformed_file(self):
         path = self.dir / "video.avi"
         path.write_bytes(b"RIFF....AVI LIST....")
+
+        self.assertIsNone(vm.get_avi_creation_date(path))
+
+    def test_returns_none_for_implausible_date(self):
+        path = self.dir / "video.avi"
+        self._write_fake_avi(path, idit_text=datetime(1970, 1, 1).strftime("%a %b %d %H:%M:%S %Y"))
 
         self.assertIsNone(vm.get_avi_creation_date(path))
 
@@ -147,6 +164,14 @@ class TestWmvCreationDate(unittest.TestCase):
     def test_returns_none_when_creation_date_is_zero(self):
         path = self.dir / "video.wmv"
         self._write_fake_wmv(path, creation_filetime=0)
+
+        self.assertIsNone(vm.get_wmv_creation_date(path))
+
+    def test_returns_none_for_implausible_date(self):
+        path = self.dir / "video.wmv"
+        delta = datetime(1970, 1, 1) - vm.FILETIME_EPOCH
+        creation_filetime = (delta.days * 86400 + delta.seconds) * 10_000_000
+        self._write_fake_wmv(path, creation_filetime)
 
         self.assertIsNone(vm.get_wmv_creation_date(path))
 
@@ -201,6 +226,14 @@ class TestMatroskaCreationDate(unittest.TestCase):
     def test_returns_none_without_date_utc(self):
         path = self.dir / "video.webm"
         self._write_fake_matroska(path, date_utc_ns=None)
+
+        self.assertIsNone(vm.get_matroska_creation_date(path))
+
+    def test_returns_none_for_implausible_date(self):
+        path = self.dir / "video.mkv"
+        delta = datetime(1970, 1, 1) - vm.MATROSKA_DATE_UTC_EPOCH
+        date_utc_ns = (delta.days * 86400 + delta.seconds) * 1_000_000_000
+        self._write_fake_matroska(path, date_utc_ns)
 
         self.assertIsNone(vm.get_matroska_creation_date(path))
 
