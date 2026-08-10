@@ -25,7 +25,6 @@ class MediaSorterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Tri de photos par date")
-        self.root.geometry("760x620")
 
         preferences = media_sorter.load_preferences()
 
@@ -46,6 +45,21 @@ class MediaSorterApp:
         self._pre_count_generation = 0
 
         self._build_ui()
+        self._set_initial_geometry()
+
+    def _set_initial_geometry(self):
+        # Calculée à partir des widgets réellement construits plutôt qu'une taille fixe
+        # codée en dur : une taille fixe se désynchronise silencieusement à chaque ajout
+        # de widget (case à cocher, ligne de dossiers sources...) et finit par ouvrir une
+        # fenêtre trop petite pour son propre contenu — la zone basse (destination,
+        # boutons de transfert) passe alors sous le bord visible de la fenêtre, invisible
+        # tant qu'on ne l'agrandit pas à la main. minsize() empêche en plus de revenir à
+        # ce même problème en redimensionnant la fenêtre à la main par la suite.
+        self.root.update_idletasks()
+        width = max(760, self.root.winfo_reqwidth())
+        height = self.root.winfo_reqheight()
+        self.root.geometry(f"{width}x{height}")
+        self.root.minsize(width, height)
 
     def _build_ui(self):
         pad = {"padx": 8, "pady": 6}
