@@ -727,6 +727,24 @@ class TestStartCopyValidation(AppTestCase):
         self.assertEqual(len(self.messages), 1)
         self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
 
+    def test_errors_when_dest_dir_is_nested_inside_a_second_scanned_source_dir(self):
+        # Symétrique du test ci-dessus, mais pour le cas "imbriqué" plutôt qu'"égal" :
+        # même raisonnement, un garde-fou qui ne testerait is_relative_to que sur le
+        # premier dossier de la liste laisserait passer ce cas-ci.
+        photo = self._make_photo("a.jpg")
+        other_source = Path(self.tmpdir.name) / "src2"
+        other_source.mkdir()
+        nested_dest = other_source / "sorted"
+        nested_dest.mkdir()
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app._scanned_source_paths = [self.src_dir.resolve(), other_source.resolve()]
+        self.app.dest_dir.set(str(nested_dest))
+
+        self.app.start_copy()
+
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
+
     def test_editing_source_dirs_after_scan_does_not_bypass_the_guard(self):
         # Le garde-fou doit se baser sur les dossiers réellement analysés (ceux qui ont
         # produit tree_data), pas sur le contenu actuel de la liste des sources : sinon
