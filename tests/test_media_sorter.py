@@ -71,6 +71,27 @@ class TestGetMediaDate(unittest.TestCase):
 
         self.assertIsNone(ps.get_media_date(path))
 
+    def test_returns_none_when_photo_metadata_parser_raises(self):
+        # Jusqu'ici seul le cas "pas de métadonnée trouvée" (retour None) était couvert :
+        # get_photo_exif_date() peut aussi lever (fichier corrompu, format non reconnu
+        # par Pillow...), et get_media_date() doit absorber ce cas-là aussi plutôt que de
+        # faire échouer toute l'analyse (voir scan_media, qui ne rattrape que OSError).
+        path = self.dir / "photo.jpg"
+        Image.new("RGB", (2, 2)).save(path)
+
+        # Patché sur ps (media_sorter), pas sur pm (photo_metadata) : media_sorter en a
+        # importé sa propre référence ("from photo_metadata import get_photo_exif_date"),
+        # patcher pm.get_photo_exif_date ne l'affecterait pas.
+        with unittest.mock.patch.object(ps, "get_photo_exif_date", side_effect=OSError("fichier corrompu")):
+            self.assertIsNone(ps.get_media_date(path))
+
+    def test_returns_none_when_video_metadata_parser_raises(self):
+        path = self.dir / "video.mp4"
+        path.write_bytes(b"\x00" * 16)
+
+        with unittest.mock.patch.object(ps, "get_video_creation_date", side_effect=OSError("fichier corrompu")):
+            self.assertIsNone(ps.get_media_date(path))
+
 
 class TestScanMedia(unittest.TestCase):
     def setUp(self):
