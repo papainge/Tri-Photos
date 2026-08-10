@@ -17,6 +17,7 @@ Fonctionne sous Windows, Linux et macOS.
 ```
 src/media_sorter.py     Point d'entrée ; logique de scan/tri/copie/hash (sans dépendance Tkinter)
 src/app_ui.py           Interface Tkinter (MediaSorterApp), délègue tout à media_sorter.py
+src/cli.py              Interface en ligne de commande (automatisation), délègue aussi à media_sorter.py
 src/photo_metadata.py   Lecture de la date EXIF des photos
 src/video_metadata.py   Lecture de la date de création des vidéos (MP4, AVI, WMV, MKV/WEBM)
 src/media_date_utils.py Filtre de plausibilité partagé (écarte les dates aberrantes)
@@ -171,6 +172,39 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
    pour l'analyse, un bouton **Annuler** permet d'interrompre l'opération à la volée (le
    fichier en cours de transfert va jusqu'à son terme, seul le suivant ne démarre pas).
 
+## Utilisation en ligne de commande (automatisation)
+
+Pour une tâche planifiée ou une sauvegarde régulière (carte SD, export de téléphone...),
+`src/media_sorter.py` accepte aussi des arguments en ligne de commande, sans passer par
+l'interface graphique :
+
+```bash
+venv\Scripts\python src\media_sorter.py --source "D:\Carte SD" --dest "D:\Photos triées" --yes   # Windows
+venv/bin/python src/media_sorter.py --source "/media/carte_sd" --dest "/home/moi/Photos" --yes    # Linux / macOS
+```
+
+Options principales (voir `--help` pour la liste complète) :
+
+- `--source DOSSIER` (répétable) : un ou plusieurs dossiers sources à analyser.
+- `--dest DOSSIER` : dossier de destination (même garde-fou que l'interface graphique —
+  refusé s'il s'agit d'un dossier source ou d'un de ses sous-dossiers).
+- `--level {annee,mois,jour}` (défaut `jour`), `--mode {copier,deplacer}` (défaut
+  `copier`), `--separate-media`, `--no-recursive`, `--rename`, `--filename-fallback` :
+  équivalents en ligne de commande des réglages de l'interface graphique.
+- `--yes` : ne demande pas de confirmation avant de transférer — nécessaire pour une
+  tâche planifiée, qui n'a personne pour répondre à un prompt.
+
+Le code de sortie du processus est `0` en cas de succès, `1` en cas d'erreur,
+d'annulation ou de dossier source/destination invalide — à vérifier dans le script ou la
+tâche planifiée appelante.
+
+**Important : n'invoquez pas `TriPhotos.exe` de cette façon.** Il est construit en mode
+`--windowed` (voir [Reconstruire TriPhotos.exe](#reconstruire-triphotosexe-windows)), donc
+sans console attachée : les messages de la CLI n'apparaîtraient nulle part, même si le
+transfert des fichiers fonctionne réellement en arrière-plan. Utilisez toujours
+l'interpréteur Python (`venv\Scripts\python src\media_sorter.py ...`) pour un usage en
+ligne de commande.
+
 ## Tests
 
 Chaque module de `src/` a son fichier de tests dédié (module `unittest`) :
@@ -196,6 +230,10 @@ Chaque module de `src/` a son fichier de tests dédié (module `unittest`) :
   que les callbacks déclenchés depuis les threads d'arrière-plan s'exécutent ; les
   vérifications d'état "en cours d'opération" bloquent le mock concerné via un
   `threading.Event` plutôt que de deviner un délai
+- `tests/test_cli.py` — l'interface en ligne de commande (`cli.py`) : validations,
+  transfert réel de fichiers (niveau de tri, séparation Photos/Vidéos, copier/déplacer,
+  plusieurs dossiers sources), confirmation interactive (accord, refus, absence
+  d'entrée disponible)
 - `tests/test_load.py` — tests de charge génériques : plusieurs milliers de fichiers
   répartis sur des dizaines de dossiers/dates (`scan_media`, agrégation, détection de
   doublons face à un dossier de destination déjà bien rempli)

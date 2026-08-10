@@ -806,6 +806,13 @@ def copy_files(
 
 
 def main():
+    # Des arguments en ligne de commande signalent un usage automatisé (voir cli.py) :
+    # sans argument, comportement inchangé (lancement de l'interface Tkinter).
+    if len(sys.argv) > 1:
+        from cli import run_cli
+
+        sys.exit(run_cli(sys.argv[1:]))
+
     from app_ui import MediaSorterApp
 
     root = tk.Tk()
