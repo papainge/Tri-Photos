@@ -412,6 +412,29 @@ class TestScanLifecycle(AppTestCase):
         self.assertEqual(results["scan_button"], "disabled")
         self.assertEqual(results["cancel_scan_button"], "normal")
 
+    def test_recursive_checkbox_state_is_forwarded_to_scan_media(self):
+        # TestPreScanCount.test_recount_reflects_recursive_toggle vérifie déjà que
+        # décocher "Inclure les sous-dossiers" change le comptage rapide, mais rien ne
+        # prouvait qu'une analyse réelle (start_scan -> _scan_worker) transmet bien ce
+        # choix à scan_media plutôt que d'utiliser une valeur figée.
+        self._make_photo("a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+
+        with unittest.mock.patch.object(ms, "scan_media", return_value={"photos": {}, "videos": {}}) as mock_scan_media:
+            self.app.recursive.set(False)
+            run_and_wait(
+                self.root, [(10, self.app.start_scan)],
+                lambda: str(self.app.scan_button.cget("state")) == "normal",
+            )
+            self.assertEqual(mock_scan_media.call_args.kwargs["recursive"], False)
+
+            self.app.recursive.set(True)
+            run_and_wait(
+                self.root, [(10, self.app.start_scan)],
+                lambda: str(self.app.scan_button.cget("state")) == "normal",
+            )
+            self.assertEqual(mock_scan_media.call_args.kwargs["recursive"], True)
+
     def test_scan_of_empty_folder_shows_no_files_message(self):
         self.app.source_dir.set(str(self.src_dir))
 
