@@ -458,7 +458,21 @@ def dated_filename(path: Path, use_filename_fallback: bool = False) -> str:
 
 
 def unique_destination(dest_dir: Path, filename: str) -> Path:
-    """Évite d'écraser un fichier existant en suffixant _1, _2, ... en cas de collision."""
+    """Évite d'écraser un fichier existant en suffixant _1, _2, ... en cas de collision.
+
+    Le test d'existence puis l'écriture réelle (shutil.copy2/move, dans transfer_file)
+    sont deux étapes séparées, non atomiques : une autre instance de l'outil (ou un
+    autre programme) écrivant au même moment sous le même nom dans dest_dir pourrait
+    en théorie écraser silencieusement le fichier retourné ici. Risque accepté
+    délibérément plutôt que corrigé par une réservation atomique (os.open avec
+    O_CREAT | O_EXCL) : celle-ci forcerait shutil.move à toujours retomber sur une
+    copie + suppression sous Windows (os.rename y échoue si la destination existe déjà,
+    y compris pour un simple fichier vide fraîchement réservé), remplaçant un
+    renommage instantané par une copie intégrale à chaque déplacement — un coût réel et
+    systématique pour parer une course qui suppose deux instances de l'outil actives en
+    parallèle sur le même dossier de destination, un scénario hors du cadre d'usage
+    prévu (un seul utilisateur, une seule instance ; voir _set_options_locked qui
+    empêche déjà scan et copie concurrents au sein d'une même instance)."""
     dest = dest_dir / filename
     if not dest.exists():
         return dest
