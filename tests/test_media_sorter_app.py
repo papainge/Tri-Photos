@@ -36,6 +36,7 @@ from tkinter import filedialog, messagebox
 
 from PIL import Image
 
+import app_ui
 import media_sorter as ms
 import photo_metadata as pm
 
@@ -130,7 +131,7 @@ class AppTestCase(unittest.TestCase):
         original_askdirectory = filedialog.askdirectory
         self.addCleanup(setattr, filedialog, "askdirectory", original_askdirectory)
 
-        self.app = ms.MediaSorterApp(self.root)
+        self.app = app_ui.MediaSorterApp(self.root)
         self._photo_counter = 0
 
     def _patch_messagebox(self, name):

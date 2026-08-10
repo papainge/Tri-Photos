@@ -15,7 +15,8 @@ Fonctionne sous Windows, Linux et macOS.
 ## Structure du projet
 
 ```
-src/media_sorter.py     Point d'entrée : interface Tkinter, tri/agrégation, copie/déplacement
+src/media_sorter.py     Point d'entrée ; logique de scan/tri/copie/hash (sans dépendance Tkinter)
+src/app_ui.py           Interface Tkinter (MediaSorterApp), délègue tout à media_sorter.py
 src/photo_metadata.py   Lecture de la date EXIF des photos
 src/video_metadata.py   Lecture de la date de création des vidéos (MP4, AVI, WMV, MKV/WEBM)
 src/media_date_utils.py Filtre de plausibilité partagé (écarte les dates aberrantes)
