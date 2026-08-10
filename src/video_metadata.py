@@ -9,8 +9,8 @@ externe. Un parseur par famille de conteneur :
 Chaque parseur ne lit jamais les données audio/vidéo elles-mêmes (potentiellement
 énormes) : il ne fait que sauter par-dessus grâce aux tailles déclarées dans les
 en-têtes du conteneur. MPG/MPEG n'a pas d'équivalent standardisé à ces structures et
-n'est donc pas géré ici (voir media_sorter.get_media_date pour le repli sur la date de
-modification du fichier).
+n'est donc pas géré ici (voir media_sorter.get_media_date, qui renvoie None dans ce
+cas — le fichier est alors classé dans NO_INFO_LABEL plutôt que daté approximativement).
 
 Copyright (C) 2026 Guillaume Pataut
 Logiciel libre distribué sous licence GNU GPL v3 (ou ultérieure) — voir le fichier

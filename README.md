@@ -5,10 +5,10 @@
 Application locale (Python + Tkinter) qui analyse un dossier de photos et vidéos,
 propose une arborescence par date (Année, Année / Mois, ou Année / Mois / Jour, au
 choix) basée sur la date de prise de vue ou de création (métadonnées EXIF pour les
-photos, métadonnées embarquées pour la plupart des formats vidéo, avec repli sur la
-date de modification du fichier si absente), puis copie ou déplace les fichiers dans un
-nouveau dossier selon cette arborescence — avec la possibilité de séparer Photos et
-Vidéos à la racine de la destination.
+photos, métadonnées embarquées pour la plupart des formats vidéo — les fichiers sans
+métadonnée exploitable sont classés à part, dans un dossier "No Info"), puis copie ou
+déplace les fichiers dans un nouveau dossier selon cette arborescence — avec la
+possibilité de séparer Photos et Vidéos à la racine de la destination.
 
 Fonctionne sous Windows, Linux et macOS.
 
@@ -192,8 +192,7 @@ Elle est aussi lancée automatiquement sur Windows et Linux (via Xvfb), en Pytho
 
 - **Photos** : JPEG, PNG, GIF, BMP, TIFF, WEBP, HEIC/HEIF. La date EXIF (DateTimeOriginal,
   puis DateTimeDigitized, puis DateTime) est lue quand le format et le fichier la
-  portent (JPEG, TIFF, HEIC/HEIF, PNG, WEBP) ; GIF et BMP n'ont pas de mécanisme EXIF et
-  sont toujours datés via la date de modification.
+  portent (JPEG, TIFF, HEIC/HEIF, PNG, WEBP) ; GIF et BMP n'ont pas de mécanisme EXIF.
 - **Vidéos** : MP4, MOV, M4V, 3GP, AVI, WMV, MKV, WEBM, MPG/MPEG. La date de création
   embarquée est lue directement, sans dépendance externe, pour chacun de ces conteneurs
   (sauf MPG/MPEG, qui n'a pas d'équivalent standardisé) :
@@ -202,9 +201,10 @@ Elle est aussi lancée automatiquement sur Windows et Linux (via Xvfb), en Pytho
   - **WMV** : `File Properties Object` (ASF).
   - **MKV/WEBM** : élément `DateUTC` (`Segment`/`Info`, EBML/Matroska).
 
-  Quand la métadonnée correspondante est absente du fichier (chunk/objet non renseigné
-  par le logiciel d'origine), la date de modification du fichier est utilisée à la
-  place, comme pour les photos sans EXIF.
+  Un fichier sans date exploitable dans ses métadonnées (GIF/BMP, MPG/MPEG, ou tout
+  autre format dont la métadonnée de date est absente ou aberrante) n'est **pas** daté
+  via sa date de modification : il est classé à part, dans un dossier `No Info`, au même
+  niveau que les dossiers Année (quel que soit le niveau de tri choisi).
 
 Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` :
 
@@ -213,9 +213,9 @@ pip install pillow-heif
 ```
 
 (`TriPhotos.exe` et le script `run.sh` n'incluent que Pillow par défaut ; sans
-`pillow-heif`, les fichiers HEIC sont classés selon leur date de modification au lieu
-de la date EXIF. Pour l'inclure dans l'exécutable Windows, l'ajouter à
-`requirements.txt` puis relancer `packaging\build.bat`).
+`pillow-heif`, les fichiers HEIC sont classés dans `No Info` faute de pouvoir lire leur
+date EXIF. Pour l'inclure dans l'exécutable Windows, l'ajouter à `requirements.txt` puis
+relancer `packaging\build.bat`).
 
 ## Licence
 

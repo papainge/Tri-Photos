@@ -52,31 +52,32 @@ MEDIA_CATEGORY_BY_EXTENSION = {
     **{ext: "videos" for ext in VIDEO_EXTENSIONS},
 }
 
+NO_INFO_LABEL = "No Info"
 
-def get_media_date(path: Path) -> datetime:
-    """Renvoie la date de prise de vue/création (métadonnées EXIF ou vidéo) ou, à
-    défaut, la date de modification du fichier sur le disque.
+
+def get_media_date(path: Path):
+    """Renvoie la date de prise de vue/création lue dans les métadonnées (EXIF ou
+    vidéo), ou None si aucune métadonnée de date n'est trouvée.
 
     Délègue à photo_metadata (EXIF, silencieusement absent sur GIF/BMP) ou
     video_metadata (MP4/MOV/M4V/3GP, AVI, WMV, MKV/WEBM ; MPG/MPEG n'a pas d'équivalent
-    standardisé et reste toujours daté via la date de modification) selon l'extension.
+    standardisé et renvoie donc toujours None) selon l'extension. La date de
+    modification du fichier n'est volontairement pas utilisée en repli : ce n'est pas
+    une date fiable de prise de vue (copie, transfert... la modifient sans rapport avec
+    le contenu) — voir scan_media pour le classement des fichiers sans date dans
+    NO_INFO_LABEL.
     """
     suffix = path.suffix.lower()
     if suffix in IMAGE_EXTENSIONS:
         try:
-            date = get_photo_exif_date(path)
-            if date is not None:
-                return date
+            return get_photo_exif_date(path)
         except Exception:
-            pass
+            return None
     else:
         try:
-            date = get_video_creation_date(path)
-            if date is not None:
-                return date
+            return get_video_creation_date(path)
         except Exception:
-            pass
-    return datetime.fromtimestamp(path.stat().st_mtime)
+            return None
 
 
 class ScanCancelled(Exception):
@@ -150,6 +151,10 @@ def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading
     le nombre de fichiers ne dépend pas de la récursivité (un dossier plat peut tout
     autant en contenir des milliers), donc le gain s'applique dans les deux cas.
 
+    Un fichier sans date exploitable dans ses métadonnées (get_media_date renvoie None)
+    est classé à part, sous la clé NO_INFO_LABEL, plutôt que d'être daté approximativement
+    par sa date de modification.
+
     Si cancel_event est fourni et déclenché pendant l'analyse (par ex. depuis un autre
     thread), lève ScanCancelled dès que possible plutôt que d'aller au bout : pendant le
     parcours du dossier, ou entre deux résultats une fois la lecture des dates lancée.
@@ -175,6 +180,9 @@ def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading
                 # débranché, chemin trop long) : on l'ignore plutôt que de faire échouer
                 # toute l'analyse et perdre le travail déjà accompli sur les autres.
                 continue
+            if date is None:
+                tree[category].setdefault(NO_INFO_LABEL, []).append(path)
+                continue
             year, month, day = str(date.year), f"{date.month:02d}", f"{date.day:02d}"
             tree[category].setdefault(year, {}).setdefault(month, {}).setdefault(day, []).append(path)
     finally:
@@ -183,10 +191,15 @@ def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading
 
 
 def merge_media_trees(tree: dict) -> dict:
-    """Fusionne les arbres photos et vidéos en un seul arbre année/mois/jour."""
+    """Fusionne les arbres photos et vidéos en un seul arbre année/mois/jour, en gardant
+    à part les fichiers sans date (NO_INFO_LABEL, une simple liste plutôt qu'un
+    sous-arbre mois/jour)."""
     merged = {}
     for category_tree in tree.values():
         for year, months in category_tree.items():
+            if year == NO_INFO_LABEL:
+                merged.setdefault(year, []).extend(months)
+                continue
             for month, days in months.items():
                 for day, files in days.items():
                     merged.setdefault(year, {}).setdefault(month, {}).setdefault(day, []).extend(files)
@@ -225,10 +238,16 @@ def aggregate_tree(tree: dict, level: str) -> dict:
     Le niveau étant imbriqué (jour implique mois et année), on ne fait
     qu'arrêter la descente plus tôt et fusionner les fichiers des niveaux
     inférieurs dans les feuilles.
+
+    Les fichiers sans date (NO_INFO_LABEL) restent un dossier à part entière, non
+    subdivisé, quel que soit le niveau de tri choisi.
     """
     depth = SORT_LEVELS[level][1]
     result = {}
     for year, months in tree.items():
+        if year == NO_INFO_LABEL:
+            result.setdefault(year, []).extend(months)
+            continue
         if depth == 1:
             result.setdefault(year, []).extend(
                 f for days in months.values() for files in days.values() for f in files
@@ -872,7 +891,9 @@ class MediaSorterApp:
         self.create_button.config(state="disabled")
         self._set_options_locked(True)
         self.cancel_copy_button.config(state="normal")
-        self.status_label.config(text=f"{verb} en cours...")
+        self._copy_verb = verb
+        self._copy_total = total
+        self.status_label.config(text=f"{verb} en cours... 0 % (0/{total})")
         self.progress.pack(fill="x", padx=8, pady=(0, 6))
         self.progress.config(mode="determinate", maximum=total, value=0)
 
@@ -926,6 +947,8 @@ class MediaSorterApp:
 
     def _update_progress(self, done):
         self.progress.config(value=done)
+        percent = int(done * 100 / self._copy_total) if self._copy_total else 100
+        self.status_label.config(text=f"{self._copy_verb} en cours... {percent} % ({done}/{self._copy_total})")
 
     def _copy_done(self, done, duplicates, errors, mode):
         self.progress.pack_forget()

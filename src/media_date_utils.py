@@ -11,6 +11,6 @@ from datetime import datetime
 
 def is_plausible_media_date(date: datetime) -> bool:
     """Filtre les dates aberrantes (métadonnées corrompues ou jamais renseignées, par
-    exemple un appareil dont l'horloge n'a jamais été réglée), pour lesquelles la date
-    de modification du fichier est plus fiable."""
+    exemple un appareil dont l'horloge n'a jamais été réglée) : un fichier dont la date
+    est rejetée ici est traité comme sans métadonnée (voir media_sorter.NO_INFO_LABEL)."""
     return 1990 <= date.year <= datetime.now().year + 1

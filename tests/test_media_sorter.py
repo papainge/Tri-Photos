@@ -19,8 +19,8 @@ import video_metadata as vm
 
 # Le détail par format (EXIF, MP4/MOV, AVI, WMV, MKV/WEBM...) est couvert dans
 # tests/test_photo_metadata.py et tests/test_video_metadata.py. Ici, on vérifie
-# seulement que get_media_date délègue correctement selon l'extension et retombe sur
-# la date de modification quand aucun module ne trouve de métadonnée.
+# seulement que get_media_date délègue correctement selon l'extension et renvoie None
+# (pas la date de modification, non fiable) quand aucun module ne trouve de métadonnée.
 
 
 class TestGetMediaDate(unittest.TestCase):
@@ -38,13 +38,13 @@ class TestGetMediaDate(unittest.TestCase):
 
         self.assertEqual(ps.get_media_date(path), datetime(2020, 5, 17, 10, 30, 0))
 
-    def test_falls_back_to_mtime_when_photo_has_no_exif(self):
+    def test_returns_none_when_photo_has_no_exif(self):
         path = self.dir / "photo.png"
         Image.new("RGB", (2, 2), color="blue").save(path)
         expected = datetime(2019, 3, 4, 8, 15, 0)
         os.utime(path, (expected.timestamp(), expected.timestamp()))
 
-        self.assertEqual(ps.get_media_date(path), expected)
+        self.assertIsNone(ps.get_media_date(path))
 
     def test_delegates_to_video_metadata_for_video_extensions(self):
         path = self.dir / "video.mp4"
@@ -62,14 +62,14 @@ class TestGetMediaDate(unittest.TestCase):
 
         self.assertEqual(ps.get_media_date(path), expected)
 
-    def test_falls_back_to_mtime_when_video_metadata_is_absent(self):
+    def test_returns_none_when_video_metadata_is_absent(self):
         # MPG/MPEG n'est géré par aucun des parseurs vidéo (voir test_video_metadata.py).
         path = self.dir / "video.mpg"
         path.write_bytes(b"\x00\x00\x01\xba" + b"\x00" * 20)
         expected = datetime(2020, 7, 1, 10, 0, 0)
         os.utime(path, (expected.timestamp(), expected.timestamp()))
 
-        self.assertEqual(ps.get_media_date(path), expected)
+        self.assertIsNone(ps.get_media_date(path))
 
 
 class TestScanMedia(unittest.TestCase):
@@ -79,17 +79,34 @@ class TestScanMedia(unittest.TestCase):
         self.dir = Path(self.tmpdir.name)
 
     def _make_png(self, relative_path, date):
+        # La date est portée par le tag EXIF DateTime (IFD0, seul à survivre à
+        # l'enregistrement en PNG par Pillow — contrairement au sous-IFD Exif utilisé
+        # pour DateTimeOriginal, voir test_photo_metadata.py) : depuis que
+        # get_media_date ne retombe plus sur la date de modification du fichier, s'appuyer
+        # sur os.utime() seul ne classerait plus ces fichiers par date mais sous
+        # NO_INFO_LABEL.
         path = self.dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (2, 2)).save(path)
-        os.utime(path, (date.timestamp(), date.timestamp()))
+        img = Image.new("RGB", (2, 2))
+        exif = img.getexif()
+        exif[pm.EXIF_DATE_TIME] = date.strftime("%Y:%m:%d %H:%M:%S")
+        img.save(path, exif=exif)
         return path
 
-    def _make_file(self, relative_path, date):
+    def _make_video(self, relative_path, date):
+        # Boîte MP4 "moov"/"mvhd" minimale mais valide portant creation_time (voir
+        # test_delegates_to_video_metadata_for_video_extensions) : un fichier vidéo sans
+        # métadonnée exploitable serait désormais classé sous NO_INFO_LABEL plutôt que
+        # daté par sa date de modification.
         path = self.dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"contenu")
-        os.utime(path, (date.timestamp(), date.timestamp()))
+        creation_time = int((date - vm.MP4_EPOCH).total_seconds())
+        mvhd_content = bytes([0]) + b"\x00\x00\x00" + struct.pack(">III", creation_time, 0, 600) + struct.pack(">I", 0)
+        mvhd = struct.pack(">I", 8 + len(mvhd_content)) + b"mvhd" + mvhd_content
+        moov = struct.pack(">I", 8 + len(mvhd)) + b"moov" + mvhd
+        ftyp_content = b"isom" + struct.pack(">I", 0) + b"isomiso2mp41"
+        ftyp = struct.pack(">I", 8 + len(ftyp_content)) + b"ftyp" + ftyp_content
+        path.write_bytes(ftyp + moov)
         return path
 
     def test_groups_by_year_month_day(self):
@@ -104,6 +121,20 @@ class TestScanMedia(unittest.TestCase):
         self.assertEqual(sorted(tree["2024"]["01"]["15"]), sorted([p1, p2]))
         self.assertEqual(tree["2024"]["02"]["01"], [p3])
         self.assertEqual(tree["2023"]["12"]["25"], [p4])
+
+    def test_groups_files_without_metadata_under_no_info(self):
+        # PNG sans EXIF : get_media_date renvoie None, peu importe sa date de
+        # modification (voir test_returns_none_when_photo_has_no_exif).
+        no_info = self._make_png("sans_date.png", datetime(2024, 1, 1))
+        dated = self._make_png("avec_date.png", datetime(2024, 1, 1))
+        with unittest.mock.patch.object(
+            ps, "get_media_date",
+            side_effect=lambda path: None if path == no_info else datetime(2024, 1, 15),
+        ):
+            tree = ps.scan_media(self.dir)["photos"]
+
+        self.assertEqual(tree[ps.NO_INFO_LABEL], [no_info])
+        self.assertEqual(tree["2024"]["01"]["15"], [dated])
 
     def test_ignores_unsupported_files(self):
         self._make_png("a.png", datetime(2024, 1, 1))
@@ -134,7 +165,7 @@ class TestScanMedia(unittest.TestCase):
 
     def test_separates_photos_and_videos(self):
         photo = self._make_png("a.png", datetime(2024, 1, 15))
-        video = self._make_file("b.mp4", datetime(2024, 1, 15))
+        video = self._make_video("b.mp4", datetime(2024, 1, 15))
 
         tree = ps.scan_media(self.dir)
 
@@ -673,6 +704,13 @@ class TestAggregateTree(unittest.TestCase):
         for level in ("annee", "mois", "jour"):
             self.assertEqual(ps.count_files(ps.aggregate_tree(self.tree, level)), 4)
 
+    def test_no_info_stays_a_flat_list_at_every_level(self):
+        tree = {**self.tree, ps.NO_INFO_LABEL: ["e"]}
+
+        for level in ("annee", "mois", "jour"):
+            result = ps.aggregate_tree(tree, level)
+            self.assertEqual(result[ps.NO_INFO_LABEL], ["e"])
+
 
 class TestMergeMediaTrees(unittest.TestCase):
     def test_merges_photos_and_videos_into_one_tree(self):
@@ -684,6 +722,16 @@ class TestMergeMediaTrees(unittest.TestCase):
         merged = ps.merge_media_trees(tree)
 
         self.assertEqual(sorted(merged["2024"]["01"]["15"]), ["photo.jpg", "video.mp4"])
+
+    def test_merges_no_info_files_from_both_categories(self):
+        tree = {
+            "photos": {ps.NO_INFO_LABEL: ["photo.jpg"]},
+            "videos": {ps.NO_INFO_LABEL: ["video.mp4"]},
+        }
+
+        merged = ps.merge_media_trees(tree)
+
+        self.assertEqual(sorted(merged[ps.NO_INFO_LABEL]), ["photo.jpg", "video.mp4"])
 
 
 class TestBuildDisplayTree(unittest.TestCase):
@@ -739,6 +787,26 @@ class TestBuildDestinationMap(unittest.TestCase):
 
         self.assertEqual(dest_map[("Photos", "2024")], ["photo.jpg"])
         self.assertEqual(dest_map[("Vidéos", "2024")], ["video.mp4"])
+
+    def test_no_info_files_go_to_their_own_folder_regardless_of_sort_level(self):
+        tree = {
+            "photos": {ps.NO_INFO_LABEL: ["photo.jpg"]},
+            "videos": {ps.NO_INFO_LABEL: ["video.mp4"]},
+        }
+
+        for level in ("annee", "mois", "jour"):
+            dest_map = ps.build_destination_map(tree, level, separate_media=False)
+            self.assertEqual(sorted(dest_map[(ps.NO_INFO_LABEL,)]), ["photo.jpg", "video.mp4"])
+
+    def test_no_info_files_nested_under_category_when_separated(self):
+        tree = {
+            "photos": {ps.NO_INFO_LABEL: ["photo.jpg"]},
+            "videos": {},
+        }
+
+        dest_map = ps.build_destination_map(tree, "jour", separate_media=True)
+
+        self.assertEqual(dest_map[("Photos", ps.NO_INFO_LABEL)], ["photo.jpg"])
 
 
 class TestFlattenTree(unittest.TestCase):

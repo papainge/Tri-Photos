@@ -26,8 +26,8 @@ def get_photo_exif_date(path: Path):
     """Lit la date EXIF (DateTimeOriginal, puis DateTimeDigitized, puis DateTime) d'une
     photo via Pillow. Renvoie None si absente (formats sans EXIF comme GIF/BMP),
     illisible, ou manifestement aberrante (appareil dont l'horloge n'a jamais été
-    réglée, métadonnée corrompue) — la date de modification du fichier est alors plus
-    fiable."""
+    réglée, métadonnée corrompue) — voir media_sorter.get_media_date, qui classe alors
+    le fichier à part plutôt que de le dater par sa date de modification."""
     with Image.open(path) as img:
         exif = img.getexif()
         exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
