@@ -295,6 +295,27 @@ class TestOnRecursiveChange(AppTestCase):
         self.assertEqual(self.app.pre_scan_label.cget("text"), "Aucune photo ou vidéo trouvée dans ce dossier.")
 
 
+class TestOnFilenameFallbackChange(AppTestCase):
+    def test_warns_that_a_new_scan_is_needed_when_a_tree_is_already_displayed(self):
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": ["a.jpg"]}}}, "videos": {}}
+
+        self.app._on_filename_fallback_change()
+
+        self.assertEqual(
+            self.app.status_label.cget("text"),
+            "Nouveau réglage de détection par nom de fichier : cliquez sur Analyser "
+            "pour l'appliquer à l'arborescence.",
+        )
+
+    def test_does_not_warn_when_nothing_has_been_analysed_yet(self):
+        self.app.tree_data = {}
+        self.app.status_label.config(text="valeur figée")
+
+        self.app._on_filename_fallback_change()
+
+        self.assertEqual(self.app.status_label.cget("text"), "valeur figée")
+
+
 class TestOnCopyModeChange(AppTestCase):
     def test_button_text_reflects_selected_mode(self):
         self.assertEqual(self.app.create_button.cget("text"), "Créer l'arborescence et copier les fichiers")
@@ -442,9 +463,9 @@ class TestScanLifecycle(AppTestCase):
         self.app.source_dir.set(str(self.src_dir))
         release = threading.Event()
 
-        def blocking_get_media_date(path, _original=ms.get_media_date):
+        def blocking_get_media_date(path, use_filename_fallback=False, _original=ms.get_media_date):
             release.wait(timeout=2)
-            return _original(path)
+            return _original(path, use_filename_fallback)
 
         results = {}
         with unittest.mock.patch.object(ms, "get_media_date", side_effect=blocking_get_media_date):
@@ -488,6 +509,51 @@ class TestScanLifecycle(AppTestCase):
             )
             self.assertEqual(mock_scan_media.call_args.kwargs["recursive"], True)
 
+    def test_filename_fallback_checkbox_state_is_forwarded_to_scan_media(self):
+        self._make_photo("a.jpg")
+        self.app.source_dir.set(str(self.src_dir))
+
+        with unittest.mock.patch.object(ms, "scan_media", return_value={"photos": {}, "videos": {}}) as mock_scan_media:
+            self.app.use_filename_fallback.set(True)
+            run_and_wait(
+                self.root, [(10, self.app.start_scan)],
+                lambda: str(self.app.scan_button.cget("state")) == "normal",
+            )
+            self.assertEqual(mock_scan_media.call_args.kwargs["use_filename_fallback"], True)
+
+            self.app.use_filename_fallback.set(False)
+            run_and_wait(
+                self.root, [(10, self.app.start_scan)],
+                lambda: str(self.app.scan_button.cget("state")) == "normal",
+            )
+            self.assertEqual(mock_scan_media.call_args.kwargs["use_filename_fallback"], False)
+
+    def test_filename_without_exif_is_sorted_by_its_name_when_fallback_enabled(self):
+        # Sans EXIF, seul le nom du fichier porte une date exploitable.
+        path = self.src_dir / "IMG_20230715_143022.jpg"
+        Image.new("RGB", (2, 2)).save(path)
+        self.app.source_dir.set(str(self.src_dir))
+        self.app.use_filename_fallback.set(True)
+
+        run_and_wait(
+            self.root, [(10, self.app.start_scan)],
+            lambda: str(self.app.scan_button.cget("state")) == "normal",
+        )
+
+        self.assertIn(path, self.app.tree_data["photos"]["2023"]["07"]["15"])
+
+    def test_filename_without_exif_stays_in_no_info_when_fallback_disabled(self):
+        path = self.src_dir / "IMG_20230715_143022.jpg"
+        Image.new("RGB", (2, 2)).save(path)
+        self.app.source_dir.set(str(self.src_dir))
+
+        run_and_wait(
+            self.root, [(10, self.app.start_scan)],
+            lambda: str(self.app.scan_button.cget("state")) == "normal",
+        )
+
+        self.assertIn(path, self.app.tree_data["photos"][ms.NO_INFO_LABEL])
+
     def test_scan_of_empty_folder_shows_no_files_message(self):
         self.app.source_dir.set(str(self.src_dir))
 
@@ -511,8 +577,8 @@ class TestScanLifecycle(AppTestCase):
         call_count = {"n": 0}
         lock = threading.Lock()
 
-        def cancel_after_five_calls(path, _original=ms.get_media_date):
-            result = _original(path)
+        def cancel_after_five_calls(path, use_filename_fallback=False, _original=ms.get_media_date):
+            result = _original(path, use_filename_fallback)
             with lock:
                 call_count["n"] += 1
                 if call_count["n"] == 5:
@@ -662,6 +728,26 @@ class TestCopyLifecycle(AppTestCase):
         copied = list(self.dest_dir.rglob("*.jpg"))
         self.assertEqual([p.name for p in copied], ["IMG_0001.jpg"])
 
+    def test_rename_uses_filename_fallback_date_when_both_options_enabled(self):
+        # Régression : sans propager use_filename_fallback jusqu'à dated_filename, un
+        # fichier daté via son nom pendant l'analyse (donc sorti de No Info) se
+        # retrouverait ici sans date "trouvée" par get_media_date (appelé sans le repli)
+        # et garderait son nom d'origine — incohérent avec les fichiers datés par EXIF.
+        photo = self.src_dir / "IMG_20230715_143022.jpg"
+        Image.new("RGB", (2, 2)).save(photo)
+        self.app.tree_data = {"photos": {"2023": {"07": {"15": [photo]}}}, "videos": {}}
+        self.app.dest_dir.set(str(self.dest_dir))
+        self.app.rename_files.set(True)
+        self.app.use_filename_fallback.set(True)
+
+        run_and_wait(
+            self.root, [(10, self.app.start_copy)],
+            lambda: str(self.app.create_button.cget("state")) == "normal",
+        )
+
+        copied = list(self.dest_dir.rglob("*.jpg"))
+        self.assertEqual([p.name for p in copied], ["2023-07-15_143022.jpg"])
+
     def test_deplacer_mode_removes_source_files(self):
         photo = self._make_photo("a.jpg")
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
@@ -764,9 +850,9 @@ class TestScanCopyMutualExclusion(AppTestCase):
         self.app.dest_dir.set(str(self.dest_dir))
         release = threading.Event()
 
-        def blocking_get_media_date(path, _original=ms.get_media_date):
+        def blocking_get_media_date(path, use_filename_fallback=False, _original=ms.get_media_date):
             release.wait(timeout=2)
-            return _original(path)
+            return _original(path, use_filename_fallback)
 
         with unittest.mock.patch.object(ms, "get_media_date", side_effect=blocking_get_media_date):
             run_steps(self.root, [
@@ -807,15 +893,16 @@ class TestScanCopyMutualExclusion(AppTestCase):
         self.app.source_dir.set(str(self.src_dir))
         release = threading.Event()
 
-        def blocking_get_media_date(path, _original=ms.get_media_date):
+        def blocking_get_media_date(path, use_filename_fallback=False, _original=ms.get_media_date):
             release.wait(timeout=2)
-            return _original(path)
+            return _original(path, use_filename_fallback)
 
         results = {}
 
         def snapshot():
             results["scan_button"] = str(self.app.scan_button.cget("state"))
             results["recursive"] = str(self.app.recursive_frame.winfo_children()[0].cget("state"))
+            results["filename_fallback"] = str(self.app.filename_fallback_frame.winfo_children()[0].cget("state"))
             results["level"] = str(self.app.level_frame.winfo_children()[1].cget("state"))
             results["media"] = str(self.app.media_frame.winfo_children()[0].cget("state"))
             results["rename"] = str(self.app.rename_frame.winfo_children()[0].cget("state"))
@@ -832,6 +919,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
 
         self.assertEqual(results, {k: "disabled" for k in results})
         self.assertEqual(str(self.app.scan_button.cget("state")), "normal")
+        self.assertEqual(str(self.app.filename_fallback_frame.winfo_children()[0].cget("state")), "normal")
         self.assertEqual(str(self.app.level_frame.winfo_children()[1].cget("state")), "normal")
         self.assertEqual(str(self.app.media_frame.winfo_children()[0].cget("state")), "normal")
         self.assertEqual(str(self.app.rename_frame.winfo_children()[0].cget("state")), "normal")
@@ -852,6 +940,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
         def snapshot():
             results["scan_button"] = str(self.app.scan_button.cget("state"))
             results["recursive"] = str(self.app.recursive_frame.winfo_children()[0].cget("state"))
+            results["filename_fallback"] = str(self.app.filename_fallback_frame.winfo_children()[0].cget("state"))
             results["level"] = str(self.app.level_frame.winfo_children()[1].cget("state"))
             results["media"] = str(self.app.media_frame.winfo_children()[0].cget("state"))
             results["rename"] = str(self.app.rename_frame.winfo_children()[0].cget("state"))
@@ -868,6 +957,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
 
         self.assertEqual(results, {k: "disabled" for k in results})
         self.assertEqual(str(self.app.scan_button.cget("state")), "normal")
+        self.assertEqual(str(self.app.filename_fallback_frame.winfo_children()[0].cget("state")), "normal")
         self.assertEqual(str(self.app.level_frame.winfo_children()[1].cget("state")), "normal")
         self.assertEqual(str(self.app.media_frame.winfo_children()[0].cget("state")), "normal")
         self.assertEqual(str(self.app.rename_frame.winfo_children()[0].cget("state")), "normal")

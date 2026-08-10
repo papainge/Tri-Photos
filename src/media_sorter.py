@@ -34,6 +34,7 @@ try:
 except ImportError:
     HEIF_SUPPORTED = False
 
+from media_date_utils import date_from_filename
 from photo_metadata import get_photo_exif_date
 from video_metadata import get_video_creation_date
 
@@ -111,7 +112,7 @@ def group_no_info_by_reason(node: dict) -> dict:
     return result
 
 
-def get_media_date(path: Path):
+def get_media_date(path: Path, use_filename_fallback: bool = False):
     """Renvoie la date de prise de vue/création lue dans les métadonnées (EXIF ou
     vidéo), ou None si aucune métadonnée de date n'est trouvée.
 
@@ -122,18 +123,26 @@ def get_media_date(path: Path):
     une date fiable de prise de vue (copie, transfert... la modifient sans rapport avec
     le contenu) — voir scan_media pour le classement des fichiers sans date dans
     NO_INFO_LABEL.
+
+    Si use_filename_fallback est vrai et qu'aucune métadonnée n'a été trouvée, une
+    dernière tentative est faite via date_from_filename (voir media_date_utils) — un
+    repli optionnel, désactivé par défaut, activé explicitement par l'utilisateur
+    (case à cocher) plutôt qu'appliqué silencieusement à tous les fichiers.
     """
     suffix = path.suffix.lower()
     if suffix in IMAGE_EXTENSIONS:
         try:
-            return get_photo_exif_date(path)
+            date = get_photo_exif_date(path)
         except Exception:
-            return None
+            date = None
     else:
         try:
-            return get_video_creation_date(path)
+            date = get_video_creation_date(path)
         except Exception:
-            return None
+            date = None
+    if date is None and use_filename_fallback:
+        date = date_from_filename(path.name)
+    return date
 
 
 class ScanCancelled(Exception):
@@ -197,7 +206,10 @@ def count_media_files(source_dir: Path, recursive: bool = True) -> dict:
     return counts
 
 
-def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None, max_workers: int = None):
+def scan_media(
+    source_dir: Path, recursive: bool = True, cancel_event: threading.Event = None, max_workers: int = None,
+    use_filename_fallback: bool = False,
+):
     """Parcourt source_dir (récursivement par défaut, ou uniquement à sa racine) et
     regroupe photos et vidéos par catégorie ("photos" / "videos") puis par (année, mois,
     jour).
@@ -209,7 +221,8 @@ def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading
 
     Un fichier sans date exploitable dans ses métadonnées (get_media_date renvoie None)
     est classé à part, sous la clé NO_INFO_LABEL, plutôt que d'être daté approximativement
-    par sa date de modification.
+    par sa date de modification — sauf si use_filename_fallback est vrai et qu'une date
+    est détectée dans son nom (voir get_media_date), auquel cas il est daté normalement.
 
     Si cancel_event est fourni et déclenché pendant l'analyse (par ex. depuis un autre
     thread), lève ScanCancelled dès que possible plutôt que d'aller au bout : pendant le
@@ -223,7 +236,10 @@ def scan_media(source_dir: Path, recursive: bool = True, cancel_event: threading
 
     executor = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        future_to_candidate = {executor.submit(get_media_date, path): (path, category) for path, category in candidates}
+        future_to_candidate = {
+            executor.submit(get_media_date, path, use_filename_fallback): (path, category)
+            for path, category in candidates
+        }
         for future in as_completed(future_to_candidate):
             if cancel_event is not None and cancel_event.is_set():
                 raise ScanCancelled()
@@ -412,16 +428,20 @@ def partial_file_hash(path: Path, sample_size: int = 65536) -> str:
     return digest.hexdigest()
 
 
-def dated_filename(path: Path) -> str:
+def dated_filename(path: Path, use_filename_fallback: bool = False) -> str:
     """Construit un nom de fichier basé sur la date de prise de vue/création
     (AAAA-MM-JJ_HHMMSS), pour le renommage optionnel lors du transfert (voir
     transfer_file). Relit la métadonnée plutôt que de réutiliser celle déjà lue par
     scan_media : celle-ci n'est pas conservée au-delà du regroupement par année/mois/jour,
     et cette relecture ne porte que sur l'en-tête du fichier (bon marché, y compris pour
-    une vidéo). Renvoie le nom d'origine si aucune date exploitable n'est trouvée
-    (fichiers classés sous NO_INFO_LABEL, qui n'ont par définition pas de date à
-    proposer)."""
-    date = get_media_date(path)
+    une vidéo). Renvoie le nom d'origine si aucune date exploitable n'est trouvée.
+
+    use_filename_fallback doit refléter le même réglage que celui utilisé pour l'analyse
+    (voir scan_media) : sans quoi un fichier daté via son nom pendant l'analyse (et donc
+    sorti de NO_INFO_LABEL) se verrait ici refuser cette même date, gardant son nom
+    d'origine au lieu d'être renommé de façon cohérente avec les autres fichiers.
+    """
+    date = get_media_date(path, use_filename_fallback)
     if date is None:
         return path.name
     return f"{date.strftime('%Y-%m-%d_%H%M%S')}{path.suffix}"
@@ -464,7 +484,7 @@ def build_pending_size_index(target_dir: Path) -> dict:
 
 def transfer_file(
     src_file: Path, target_dir: Path, pending_by_size: dict, hashed_by_size: dict, mode: str,
-    rename_files: bool = False,
+    rename_files: bool = False, use_filename_fallback: bool = False,
 ) -> str:
     """Copie ou déplace src_file vers target_dir, sauf si son contenu s'y trouve déjà.
 
@@ -534,7 +554,7 @@ def transfer_file(
             src_file.unlink()
         return "duplicate"
 
-    filename = dated_filename(src_file) if rename_files else src_file.name
+    filename = dated_filename(src_file, use_filename_fallback) if rename_files else src_file.name
     dst_file = unique_destination(target_dir, filename)
     if mode == "deplacer":
         shutil.move(str(src_file), str(dst_file))
@@ -563,6 +583,7 @@ class CopyCancelled(Exception):
 def copy_files(
     destination_map: dict, dest_path: Path, mode: str,
     cancel_event: threading.Event = None, on_progress=None, rename_files: bool = False,
+    use_filename_fallback: bool = False,
 ) -> tuple:
     """Copie ou déplace chaque groupe de fichiers de destination_map (voir
     build_destination_map) vers dest_path, un sous-dossier par clé, avec détection de
@@ -576,7 +597,10 @@ def copy_files(
     on_progress(done), si fourni, est appelé après chaque fichier traité (succès,
     doublon ou erreur).
 
-    rename_files est transmis tel quel à transfer_file (voir dated_filename).
+    rename_files et use_filename_fallback sont transmis tels quels à transfer_file (voir
+    dated_filename) — use_filename_fallback doit refléter le réglage utilisé pour
+    l'analyse qui a produit destination_map, sinon un fichier daté via son nom pendant
+    l'analyse serait renommé à tort avec son nom d'origine.
 
     Renvoie (done, duplicates, errors).
     """
@@ -608,7 +632,10 @@ def copy_files(
             if cancel_event is not None and cancel_event.is_set():
                 raise CopyCancelled(done, duplicates, errors)
             try:
-                if transfer_file(src_file, target_dir, pending_by_size, hashed_by_size, mode, rename_files) == "duplicate":
+                result = transfer_file(
+                    src_file, target_dir, pending_by_size, hashed_by_size, mode, rename_files, use_filename_fallback,
+                )
+                if result == "duplicate":
                     duplicates += 1
             except Exception as exc:
                 errors.append(f"{src_file}: {exc}")
@@ -631,6 +658,7 @@ class MediaSorterApp:
         self.separate_media = tk.BooleanVar(value=False)
         self.rename_files = tk.BooleanVar(value=False)
         self.recursive = tk.BooleanVar(value=True)
+        self.use_filename_fallback = tk.BooleanVar(value=False)
         self.tree_data = {}
         self._scanned_source_path = None
         self._scan_cancel_event = None
@@ -661,6 +689,14 @@ class MediaSorterApp:
         ttk.Checkbutton(
             self.recursive_frame, text="Inclure les sous-dossiers",
             variable=self.recursive, command=self._on_recursive_change,
+        ).pack(side="left")
+
+        self.filename_fallback_frame = ttk.Frame(self.root)
+        self.filename_fallback_frame.pack(fill="x", **pad)
+        ttk.Checkbutton(
+            self.filename_fallback_frame,
+            text="À défaut, essayer de détecter une date dans le nom du fichier (ex: IMG_20230715_143022.jpg)",
+            variable=self.use_filename_fallback, command=self._on_filename_fallback_change,
         ).pack(side="left")
 
         self.pre_scan_label = ttk.Label(self.root, foreground="#555555")
@@ -742,7 +778,10 @@ class MediaSorterApp:
 
     def _option_widgets(self):
         widgets = []
-        for frame in (self.recursive_frame, self.level_frame, self.media_frame, self.rename_frame, self.mode_frame):
+        for frame in (
+            self.recursive_frame, self.filename_fallback_frame, self.level_frame,
+            self.media_frame, self.rename_frame, self.mode_frame,
+        ):
             widgets.extend(frame.winfo_children())
         return widgets
 
@@ -778,6 +817,20 @@ class MediaSorterApp:
         if self.tree_data:
             self.status_label.config(
                 text="Nouveau réglage de récursivité : cliquez sur Analyser pour l'appliquer à l'arborescence."
+            )
+
+    def _on_filename_fallback_change(self):
+        # Comme la récursivité (voir _on_recursive_change) : ce réglage détermine si un
+        # fichier obtient une date ou non pendant l'analyse elle-même, donc change quels
+        # fichiers finissent sous NO_INFO_LABEL — une simple réagrégation de
+        # l'arborescence déjà analysée ne suffit pas. Contrairement à la récursivité, il
+        # n'affecte pas le comptage rapide (celui-ci ne lit aucune métadonnée/nom).
+        if self.tree_data:
+            self.status_label.config(
+                text=(
+                    "Nouveau réglage de détection par nom de fichier : cliquez sur Analyser "
+                    "pour l'appliquer à l'arborescence."
+                )
             )
 
     def _update_pre_scan_count(self):
@@ -852,7 +905,7 @@ class MediaSorterApp:
         self._scan_cancel_event = threading.Event()
         threading.Thread(
             target=self._scan_worker,
-            args=(source_path, self.recursive.get(), self._scan_cancel_event),
+            args=(source_path, self.recursive.get(), self._scan_cancel_event, self.use_filename_fallback.get()),
             daemon=True,
         ).start()
 
@@ -862,9 +915,14 @@ class MediaSorterApp:
         self.cancel_scan_button.config(state="disabled")
         self.status_label.config(text="Annulation en cours...")
 
-    def _scan_worker(self, source_path: Path, recursive: bool, cancel_event: threading.Event):
+    def _scan_worker(
+        self, source_path: Path, recursive: bool, cancel_event: threading.Event, use_filename_fallback: bool,
+    ):
         try:
-            tree = scan_media(source_path, recursive=recursive, cancel_event=cancel_event)
+            tree = scan_media(
+                source_path, recursive=recursive, cancel_event=cancel_event,
+                use_filename_fallback=use_filename_fallback,
+            )
         except ScanCancelled:
             self.root.after(0, self._scan_cancelled)
             return
@@ -1009,7 +1067,10 @@ class MediaSorterApp:
         self._copy_cancel_event = threading.Event()
         threading.Thread(
             target=self._copy_worker,
-            args=(dest_path, destination_map, mode, self._copy_cancel_event, self.rename_files.get()),
+            args=(
+                dest_path, destination_map, mode, self._copy_cancel_event,
+                self.rename_files.get(), self.use_filename_fallback.get(),
+            ),
             daemon=True,
         ).start()
 
@@ -1020,7 +1081,8 @@ class MediaSorterApp:
         self.status_label.config(text="Annulation en cours...")
 
     def _copy_worker(
-        self, dest_path: Path, destination_map: dict, mode: str, cancel_event: threading.Event, rename_files: bool,
+        self, dest_path: Path, destination_map: dict, mode: str, cancel_event: threading.Event,
+        rename_files: bool, use_filename_fallback: bool,
     ):
         try:
             done, duplicates, errors = copy_files(
@@ -1028,6 +1090,7 @@ class MediaSorterApp:
                 cancel_event=cancel_event,
                 on_progress=lambda done: self.root.after(0, self._update_progress, done),
                 rename_files=rename_files,
+                use_filename_fallback=use_filename_fallback,
             )
         except CopyCancelled as exc:
             done, duplicates, errors = exc.args

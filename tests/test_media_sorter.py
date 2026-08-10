@@ -94,6 +94,37 @@ class TestGetMediaDate(unittest.TestCase):
         with unittest.mock.patch.object(ps, "get_video_creation_date", side_effect=OSError("fichier corrompu")):
             self.assertIsNone(ps.get_media_date(path))
 
+    def test_filename_fallback_disabled_by_default_even_with_a_dated_name(self):
+        path = self.dir / "IMG_20230715_143022.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        self.assertIsNone(ps.get_media_date(path))
+
+    def test_filename_fallback_used_when_enabled_and_metadata_absent(self):
+        path = self.dir / "IMG_20230715_143022.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        self.assertEqual(
+            ps.get_media_date(path, use_filename_fallback=True), datetime(2023, 7, 15, 14, 30, 22)
+        )
+
+    def test_filename_fallback_does_not_override_real_metadata(self):
+        path = self.dir / "IMG_20230715_143022.jpg"
+        img = Image.new("RGB", (2, 2))
+        exif = img.getexif()
+        exif.get_ifd(pm.ExifTags.IFD.Exif)[pm.EXIF_DATE_TIME_ORIGINAL] = "2020:05:17 10:30:00"
+        img.save(path, exif=exif)
+
+        self.assertEqual(
+            ps.get_media_date(path, use_filename_fallback=True), datetime(2020, 5, 17, 10, 30, 0)
+        )
+
+    def test_filename_fallback_still_none_without_a_dated_name(self):
+        path = self.dir / "photo.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        self.assertIsNone(ps.get_media_date(path, use_filename_fallback=True))
+
 
 class TestScanMedia(unittest.TestCase):
     def setUp(self):
@@ -152,12 +183,29 @@ class TestScanMedia(unittest.TestCase):
         dated = self._make_png("avec_date.png", datetime(2024, 1, 1))
         with unittest.mock.patch.object(
             ps, "get_media_date",
-            side_effect=lambda path: None if path == no_info else datetime(2024, 1, 15),
+            side_effect=lambda path, use_filename_fallback=False: None if path == no_info else datetime(2024, 1, 15),
         ):
             tree = ps.scan_media(self.dir)["photos"]
 
         self.assertEqual(tree[ps.NO_INFO_LABEL], [no_info])
         self.assertEqual(tree["2024"]["01"]["15"], [dated])
+
+    def test_filename_fallback_sorts_files_out_of_no_info_when_enabled(self):
+        path = self.dir / "IMG_20230715_143022.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        tree = ps.scan_media(self.dir, use_filename_fallback=True)["photos"]
+
+        self.assertEqual(tree["2023"]["07"]["15"], [path])
+        self.assertNotIn(ps.NO_INFO_LABEL, tree)
+
+    def test_filename_fallback_disabled_by_default_in_scan_media(self):
+        path = self.dir / "IMG_20230715_143022.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        tree = ps.scan_media(self.dir)["photos"]
+
+        self.assertEqual(tree[ps.NO_INFO_LABEL], [path])
 
     def test_ignores_unsupported_files(self):
         self._make_png("a.png", datetime(2024, 1, 1))
@@ -257,10 +305,10 @@ class TestScanMedia(unittest.TestCase):
 
         original_get_media_date = ps.get_media_date
 
-        def fail_for_broken_only(path, _original=original_get_media_date):
+        def fail_for_broken_only(path, use_filename_fallback=False, _original=original_get_media_date):
             if path == broken:
                 raise OSError("fichier disparu")
-            return _original(path)
+            return _original(path, use_filename_fallback)
 
         with unittest.mock.patch.object(ps, "get_media_date", side_effect=fail_for_broken_only):
             tree = ps.scan_media(self.dir)["photos"]
@@ -280,9 +328,9 @@ class TestScanMedia(unittest.TestCase):
 
         original_get_media_date = ps.get_media_date
 
-        def slow_get_media_date(path):
+        def slow_get_media_date(path, use_filename_fallback=False):
             time.sleep(0.05)
-            return original_get_media_date(path)
+            return original_get_media_date(path, use_filename_fallback)
 
         timer = threading.Timer(0.02, cancel_event.set)
         timer.start()
@@ -429,6 +477,18 @@ class TestDatedFilename(unittest.TestCase):
         Image.new("RGB", (2, 2)).save(path)
 
         self.assertEqual(ps.dated_filename(path), "sans_date.png")
+
+    def test_uses_filename_fallback_date_when_enabled_and_no_metadata(self):
+        path = self.dir / "IMG_20230715_143022.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        self.assertEqual(ps.dated_filename(path, use_filename_fallback=True), "2023-07-15_143022.png")
+
+    def test_filename_fallback_disabled_by_default_keeps_original_name(self):
+        path = self.dir / "IMG_20230715_143022.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        self.assertEqual(ps.dated_filename(path), "IMG_20230715_143022.png")
 
 
 class TestUniqueDestination(unittest.TestCase):
@@ -654,6 +714,28 @@ class TestTransferFile(unittest.TestCase):
 
         self.assertTrue((self.dest_dir / "IMG_0001.jpg").exists())
 
+    def test_renames_using_filename_fallback_when_enabled_and_no_metadata(self):
+        src = self.src_dir / "IMG_20230715_143022.jpg"
+        Image.new("RGB", (2, 2)).save(src)
+        pending_by_size, hashed_by_size = self._empty_index()
+
+        result = ps.transfer_file(
+            src, self.dest_dir, pending_by_size, hashed_by_size, "copier",
+            rename_files=True, use_filename_fallback=True,
+        )
+
+        self.assertEqual(result, "copied")
+        self.assertTrue((self.dest_dir / "2023-07-15_143022.jpg").exists())
+
+    def test_rename_without_filename_fallback_keeps_original_name_when_no_metadata(self):
+        src = self.src_dir / "IMG_20230715_143022.jpg"
+        Image.new("RGB", (2, 2)).save(src)
+        pending_by_size, hashed_by_size = self._empty_index()
+
+        ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier", rename_files=True)
+
+        self.assertTrue((self.dest_dir / "IMG_20230715_143022.jpg").exists())
+
 
 class TestCopyFiles(unittest.TestCase):
     def setUp(self):
@@ -847,6 +929,20 @@ class TestCopyFiles(unittest.TestCase):
         mock_transfer.assert_called_once()
         args = mock_transfer.call_args.args
         self.assertEqual((args[0], args[1], args[4], args[5]), (a, self.dest_dir / "2024", "copier", True))
+
+    def test_forwards_use_filename_fallback_to_transfer_file(self):
+        a = self._make_src_files(["a.jpg"])[0]
+        destination_map = {("2024",): [a]}
+
+        with unittest.mock.patch.object(ps, "transfer_file", wraps=ps.transfer_file) as mock_transfer:
+            ps.copy_files(destination_map, self.dest_dir, "copier", rename_files=True, use_filename_fallback=True)
+
+        mock_transfer.assert_called_once()
+        args = mock_transfer.call_args.args
+        self.assertEqual(
+            (args[0], args[1], args[4], args[5], args[6]),
+            (a, self.dest_dir / "2024", "copier", True, True),
+        )
 
     def test_renames_files_end_to_end_when_requested(self):
         photo = self.src_dir / "IMG_0001.jpg"
