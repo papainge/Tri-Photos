@@ -77,7 +77,7 @@ class TestArgParsing(CliTestCase):
         self.assertTrue(args.recursive)
         self.assertFalse(args.rename)
         self.assertFalse(args.filename_fallback)
-        self.assertFalse(args.yes)
+        self.assertFalse(args.force)
 
     def test_source_is_repeatable(self):
         args = cli.build_arg_parser().parse_args(["--source", "a", "--source", "b", "--dest", "c"])
@@ -94,7 +94,7 @@ class TestRunCliValidation(CliTestCase):
     def test_errors_when_source_dir_does_not_exist(self):
         missing = Path(self.tmpdir.name) / "missing"
 
-        exit_code, _out, err = self._run(["--source", str(missing), "--dest", str(self.dest_dir), "--yes"])
+        exit_code, _out, err = self._run(["--source", str(missing), "--dest", str(self.dest_dir), "--force"])
 
         self.assertEqual(exit_code, 1)
         self.assertIn("n'existe pas", err)
@@ -102,7 +102,7 @@ class TestRunCliValidation(CliTestCase):
     def test_errors_when_dest_equals_a_source_dir(self):
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
 
-        exit_code, _out, err = self._run(["--source", str(self.src_dir), "--dest", str(self.src_dir), "--yes"])
+        exit_code, _out, err = self._run(["--source", str(self.src_dir), "--dest", str(self.src_dir), "--force"])
 
         self.assertEqual(exit_code, 1)
         self.assertIn("dossier de destination", err)
@@ -111,13 +111,13 @@ class TestRunCliValidation(CliTestCase):
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
         nested_dest = self.src_dir / "sorted"
 
-        exit_code, _out, err = self._run(["--source", str(self.src_dir), "--dest", str(nested_dest), "--yes"])
+        exit_code, _out, err = self._run(["--source", str(self.src_dir), "--dest", str(nested_dest), "--force"])
 
         self.assertEqual(exit_code, 1)
         self.assertIn("dossier de destination", err)
 
     def test_reports_when_no_media_found(self):
-        exit_code, out, _err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--yes"])
+        exit_code, out, _err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--force"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Aucune photo ou vidéo trouvée", out)
@@ -125,10 +125,10 @@ class TestRunCliValidation(CliTestCase):
 
 
 class TestRunCliTransfer(CliTestCase):
-    def test_copies_files_with_yes_flag(self):
+    def test_copies_files_with_force_flag(self):
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
 
-        exit_code, out, _err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--yes"])
+        exit_code, out, _err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--force"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("1 fichier(s) copié(s)", out)
@@ -139,7 +139,7 @@ class TestRunCliTransfer(CliTestCase):
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
 
         exit_code, out, _err = self._run(
-            ["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--mode", "deplacer", "--yes"]
+            ["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--mode", "deplacer", "--force"]
         )
 
         self.assertEqual(exit_code, 0)
@@ -151,7 +151,7 @@ class TestRunCliTransfer(CliTestCase):
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
 
         exit_code, _out, _err = self._run(
-            ["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--separate-media", "--yes"]
+            ["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--separate-media", "--force"]
         )
 
         self.assertEqual(exit_code, 0)
@@ -161,7 +161,7 @@ class TestRunCliTransfer(CliTestCase):
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
 
         exit_code, _out, _err = self._run(
-            ["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--level", "annee", "--yes"]
+            ["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--level", "annee", "--force"]
         )
 
         self.assertEqual(exit_code, 0)
@@ -176,7 +176,7 @@ class TestRunCliTransfer(CliTestCase):
         os.utime(photo2, (datetime(2024, 2, 20).timestamp(),) * 2)
 
         exit_code, out, _err = self._run(
-            ["--source", str(self.src_dir), "--source", str(other_dir), "--dest", str(self.dest_dir), "--yes"]
+            ["--source", str(self.src_dir), "--source", str(other_dir), "--dest", str(self.dest_dir), "--force"]
         )
 
         self.assertEqual(exit_code, 0)
@@ -204,7 +204,7 @@ class TestRunCliConfirmationPrompt(CliTestCase):
         self.assertTrue((self.dest_dir / "2024" / "01-Janvier" / "15" / "a.jpg").exists())
 
     def test_cancels_without_hanging_when_no_input_available(self):
-        # Cas d'une tâche planifiée où --yes a été oublié : aucune entrée disponible sur
+        # Cas d'une tâche planifiée où --force a été oublié : aucune entrée disponible sur
         # stdin. input() lève EOFError plutôt que de bloquer indéfiniment.
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
 
@@ -220,7 +220,7 @@ class TestRunCliErrors(CliTestCase):
         self._make_photo("a.jpg", date=datetime(2024, 1, 15))
 
         with unittest.mock.patch.object(ms, "copy_files", return_value=(1, 0, ["a.jpg: boom"])):
-            exit_code, _out, err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--yes"])
+            exit_code, _out, err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--force"])
 
         self.assertEqual(exit_code, 1)
         self.assertIn("1 erreur(s)", err)

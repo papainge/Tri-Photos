@@ -179,8 +179,8 @@ Pour une tâche planifiée ou une sauvegarde régulière (carte SD, export de t�
 l'interface graphique :
 
 ```bash
-venv\Scripts\python src\media_sorter.py --source "D:\Carte SD" --dest "D:\Photos triées" --yes   # Windows
-venv/bin/python src/media_sorter.py --source "/media/carte_sd" --dest "/home/moi/Photos" --yes    # Linux / macOS
+venv\Scripts\python src\media_sorter.py --source "D:\Carte SD" --dest "D:\Photos triées" --force   # Windows
+venv/bin/python src/media_sorter.py --source "/media/carte_sd" --dest "/home/moi/Photos" --force    # Linux / macOS
 ```
 
 Options principales (voir `--help` pour la liste complète) :
@@ -191,7 +191,7 @@ Options principales (voir `--help` pour la liste complète) :
 - `--level {annee,mois,jour}` (défaut `jour`), `--mode {copier,deplacer}` (défaut
   `copier`), `--separate-media`, `--no-recursive`, `--rename`, `--filename-fallback` :
   équivalents en ligne de commande des réglages de l'interface graphique.
-- `--yes` : ne demande pas de confirmation avant de transférer — nécessaire pour une
+- `--force` : ne demande pas de confirmation avant de transférer — nécessaire pour une
   tâche planifiée, qui n'a personne pour répondre à un prompt.
 
 Le code de sortie du processus est `0` en cas de succès, `1` en cas d'erreur,

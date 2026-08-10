@@ -67,7 +67,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="À défaut de métadonnée exploitable, tente de détecter une date dans le nom du fichier.",
     )
     parser.add_argument(
-        "--yes", "-y", action="store_true",
+        "--force", "-f", action="store_true",
         help="Ne demande pas de confirmation avant de transférer (nécessaire pour l'automatisation).",
     )
     return parser
@@ -115,11 +115,11 @@ def run_cli(argv) -> int:
 
     verb = "déplacer" if args.mode == "deplacer" else "copier"
     print(f"{total} fichier(s) trouvé(s) à {verb} vers {dest_path}.")
-    if not args.yes:
+    if not args.force:
         try:
             answer = input(f"Confirmer ({verb}) ? [o/N] ").strip().lower()
         except EOFError:
-            # Aucune entrée disponible (tâche planifiée, --yes oublié) : on refuse
+            # Aucune entrée disponible (tâche planifiée, --force oublié) : on refuse
             # plutôt que de rester bloqué indéfiniment ou de lever une exception brute.
             answer = ""
         if answer not in ("o", "oui", "y", "yes"):
