@@ -27,11 +27,13 @@ class MediaSorterApp:
         self.root.title("Tri de photos par date")
         self.root.geometry("760x620")
 
+        preferences = media_sorter.load_preferences()
+
         self.source_dirs = []  # dossiers sources sélectionnés (voir add_source)
         self.dest_dir = tk.StringVar()
-        self.sort_level = tk.StringVar(value="jour")
-        self.copy_mode = tk.StringVar(value="copier")
-        self.separate_media = tk.BooleanVar(value=False)
+        self.sort_level = tk.StringVar(value=preferences["sort_level"])
+        self.copy_mode = tk.StringVar(value=preferences["copy_mode"])
+        self.separate_media = tk.BooleanVar(value=preferences["separate_media"])
         self.rename_files = tk.BooleanVar(value=False)
         self.recursive = tk.BooleanVar(value=True)
         self.use_filename_fallback = tk.BooleanVar(value=False)
@@ -184,6 +186,10 @@ class MediaSorterApp:
     def _on_copy_mode_change(self):
         verb = "copier" if self.copy_mode.get() == "copier" else "déplacer"
         self.create_button.config(text=f"Créer l'arborescence et {verb} les fichiers")
+        self._save_preferences()
+
+    def _save_preferences(self):
+        media_sorter.save_preferences(self.sort_level.get(), self.separate_media.get(), self.copy_mode.get())
 
     @staticmethod
     def _resolve_key(path: Path):
@@ -368,6 +374,7 @@ class MediaSorterApp:
         self._refresh_treeview()
 
     def _on_options_change(self):
+        self._save_preferences()
         if self.tree_data:
             self._refresh_treeview()
 

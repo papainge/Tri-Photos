@@ -13,9 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-# Avant l'import : redirige les logs de media_sorter hors du vrai dossier de logs de la
-# machine qui exécute les tests (voir media_sorter._log_directory et test_load.py).
+# Avant l'import : redirige les logs et préférences de media_sorter hors des vrais
+# dossiers de la machine qui exécute les tests (voir media_sorter._log_directory,
+# media_sorter._config_directory et test_load.py).
 os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
+os.environ.setdefault("TRIPHOTOS_CONFIG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-config"))
 
 from PIL import Image
 
@@ -405,6 +407,50 @@ class TestCountMediaFiles(unittest.TestCase):
         counts = ps.count_media_files([self.dir, other_dir])
 
         self.assertEqual(counts, {"photos": 2, "videos": 1})
+
+
+class TestPreferences(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        # Isole du dossier partagé TRIPHOTOS_CONFIG_DIR (voir en tête de fichier) : sinon
+        # une préférence sauvegardée par un test polluerait celles lues par un autre.
+        original = os.environ.get("TRIPHOTOS_CONFIG_DIR")
+        os.environ["TRIPHOTOS_CONFIG_DIR"] = self.tmpdir.name
+        self.addCleanup(self._restore_env_var, original)
+
+    @staticmethod
+    def _restore_env_var(original):
+        if original is None:
+            os.environ.pop("TRIPHOTOS_CONFIG_DIR", None)
+        else:
+            os.environ["TRIPHOTOS_CONFIG_DIR"] = original
+
+    def test_load_returns_defaults_when_file_missing(self):
+        self.assertEqual(ps.load_preferences(), ps.DEFAULT_PREFERENCES)
+
+    def test_save_then_load_roundtrips(self):
+        ps.save_preferences("annee", True, "deplacer")
+
+        self.assertEqual(
+            ps.load_preferences(),
+            {"sort_level": "annee", "separate_media": True, "copy_mode": "deplacer"},
+        )
+
+    def test_load_falls_back_to_defaults_on_corrupt_json(self):
+        config_path = Path(self.tmpdir.name) / ps.PREFERENCES_FILE_NAME
+        config_path.write_text("not valid json{{{", encoding="utf-8")
+
+        self.assertEqual(ps.load_preferences(), ps.DEFAULT_PREFERENCES)
+
+    def test_load_ignores_invalid_values(self):
+        config_path = Path(self.tmpdir.name) / ps.PREFERENCES_FILE_NAME
+        config_path.write_text(
+            '{"sort_level": "siecle", "separate_media": "oui", "copy_mode": "voler"}',
+            encoding="utf-8",
+        )
+
+        self.assertEqual(ps.load_preferences(), ps.DEFAULT_PREFERENCES)
 
 
 class TestListMediaFiles(unittest.TestCase):

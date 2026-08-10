@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 # génèrent volontairement de nombreux fichiers sans métadonnée exploitable, qui
 # déclencheraient sinon des avertissements en rafale dans le journal réel de l'utilisateur.
 os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
+os.environ.setdefault("TRIPHOTOS_CONFIG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-config"))
 
 import media_sorter as ps
 

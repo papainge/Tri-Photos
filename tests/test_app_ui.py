@@ -27,9 +27,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-# Avant l'import : redirige les logs de media_sorter hors du vrai dossier de logs de la
-# machine qui exécute les tests (voir media_sorter._log_directory et test_load.py).
+# Avant l'import : redirige les logs et préférences de media_sorter hors des vrais
+# dossiers de la machine qui exécute les tests (voir media_sorter._log_directory,
+# media_sorter._config_directory et test_load.py).
 os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
+os.environ.setdefault("TRIPHOTOS_CONFIG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-config"))
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -107,6 +109,7 @@ class AppTestCase(unittest.TestCase):
         self.dest_dir = Path(self.tmpdir.name) / "dest"
         self.src_dir.mkdir()
         self.dest_dir.mkdir()
+        self._isolate_config_dir()
 
         self.root = tk.Tk()
         self.root.withdraw()
@@ -133,6 +136,24 @@ class AppTestCase(unittest.TestCase):
 
         self.app = app_ui.MediaSorterApp(self.root)
         self._photo_counter = 0
+
+    def _isolate_config_dir(self):
+        # Chaque test reçoit son propre dossier de préférences (voir
+        # media_sorter._config_directory) : sans ça, une préférence modifiée par un test
+        # (ex: TestOnCopyModeChange) polluerait le dossier partagé TRIPHOTOS_CONFIG_DIR
+        # et fausserait les valeurs par défaut lues par le MediaSorterApp du test suivant.
+        config_dir = Path(self.tmpdir.name) / "config"
+        config_dir.mkdir()
+        original = os.environ.get("TRIPHOTOS_CONFIG_DIR")
+        os.environ["TRIPHOTOS_CONFIG_DIR"] = str(config_dir)
+        self.addCleanup(self._restore_env_var, "TRIPHOTOS_CONFIG_DIR", original)
+
+    @staticmethod
+    def _restore_env_var(name, original):
+        if original is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = original
 
     def _patch_messagebox(self, name):
         original = getattr(messagebox, name)
@@ -363,6 +384,36 @@ class TestOnCopyModeChange(AppTestCase):
         self.app._on_copy_mode_change()
 
         self.assertEqual(self.app.create_button.cget("text"), "Créer l'arborescence et déplacer les fichiers")
+
+
+class TestPreferencesPersistence(AppTestCase):
+    def test_init_applies_saved_preferences(self):
+        with unittest.mock.patch.object(
+            ms, "load_preferences",
+            return_value={"sort_level": "annee", "separate_media": True, "copy_mode": "deplacer"},
+        ):
+            app = app_ui.MediaSorterApp(self.root)
+
+        self.assertEqual(app.sort_level.get(), "annee")
+        self.assertTrue(app.separate_media.get())
+        self.assertEqual(app.copy_mode.get(), "deplacer")
+
+    def test_on_options_change_saves_sort_level_and_separate_media(self):
+        self.app.sort_level.set("annee")
+        self.app.separate_media.set(True)
+
+        with unittest.mock.patch.object(ms, "save_preferences") as save_preferences:
+            self.app._on_options_change()
+
+        save_preferences.assert_called_once_with("annee", True, "copier")
+
+    def test_on_copy_mode_change_saves_copy_mode(self):
+        self.app.copy_mode.set("deplacer")
+
+        with unittest.mock.patch.object(ms, "save_preferences") as save_preferences:
+            self.app._on_copy_mode_change()
+
+        save_preferences.assert_called_once_with("jour", False, "deplacer")
 
 
 class TestRefreshTreeview(AppTestCase):
