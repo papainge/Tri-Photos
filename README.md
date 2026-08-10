@@ -186,12 +186,12 @@ Chaque module de `src/` a son fichier de tests dédié (module `unittest`) :
 - `tests/test_media_sorter.py` — tri, agrégation par niveau, séparation Photos/Vidéos,
   copie/déplacement (`copy_files`), détection de doublons, et délégation de
   `get_media_date` vers les deux modules ci-dessus
-- `tests/test_media_sorter_app.py` — l'interface Tkinter elle-même (`MediaSorterApp`) :
-  enchaînement des états des boutons pendant l'analyse et la copie, annulation,
-  validations, messages affichés. Un vrai `mainloop()` est nécessaire pour que les
-  callbacks déclenchés depuis les threads d'arrière-plan s'exécutent ; les vérifications
-  d'état "en cours d'opération" bloquent le mock concerné via un `threading.Event`
-  plutôt que de deviner un délai
+- `tests/test_app_ui.py` — l'interface Tkinter elle-même (`MediaSorterApp`, dans
+  `app_ui.py`) : enchaînement des états des boutons pendant l'analyse et la copie,
+  annulation, validations, messages affichés. Un vrai `mainloop()` est nécessaire pour
+  que les callbacks déclenchés depuis les threads d'arrière-plan s'exécutent ; les
+  vérifications d'état "en cours d'opération" bloquent le mock concerné via un
+  `threading.Event` plutôt que de deviner un délai
 - `tests/test_load.py` — tests de charge génériques : plusieurs milliers de fichiers
   répartis sur des dizaines de dossiers/dates (`scan_media`, agrégation, détection de
   doublons face à un dossier de destination déjà bien rempli)

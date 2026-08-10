@@ -46,7 +46,7 @@ def _log_directory() -> Path:
 
     TRIPHOTOS_LOG_DIR, si définie, prend le pas sur tout le reste : utilisée par les
     tests pour ne jamais écrire dans le vrai dossier de logs de la machine qui les
-    exécute (voir tests/test_load.py, test_media_sorter.py, test_media_sorter_app.py).
+    exécute (voir tests/test_load.py, test_media_sorter.py, test_app_ui.py).
     """
     override = os.environ.get("TRIPHOTOS_LOG_DIR")
     if override:

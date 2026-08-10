@@ -2,7 +2,7 @@
 d'état, threading pour ne jamais bloquer l'interface pendant l'analyse ou la copie.
 Délègue toute la logique de tri/copie/hash à media_sorter (voir ce module), toujours
 via des appels qualifiés (media_sorter.scan_media, media_sorter.copy_files...) plutôt
-que des imports directs de noms : les tests (test_media_sorter_app.py) patchent ces
+que des imports directs de noms : les tests (test_app_ui.py) patchent ces
 fonctions sur le module media_sorter, un import direct (from media_sorter import
 scan_media) capturerait la référence d'origine avant patch et la rendrait invisible ici.
 
