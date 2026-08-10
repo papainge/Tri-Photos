@@ -398,6 +398,39 @@ class TestPartialFileHash(unittest.TestCase):
         self.assertNotEqual(ps.partial_file_hash(p1, sample_size=10), ps.partial_file_hash(p2, sample_size=10))
 
 
+class TestDatedFilename(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.dir = Path(self.tmpdir.name)
+
+    def _make_dated_photo(self, name, raw_date):
+        path = self.dir / name
+        img = Image.new("RGB", (2, 2))
+        exif = img.getexif()
+        exif.get_ifd(pm.ExifTags.IFD.Exif)[pm.EXIF_DATE_TIME_ORIGINAL] = raw_date
+        img.save(path, exif=exif)
+        return path
+
+    def test_uses_media_date_when_available(self):
+        path = self._make_dated_photo("a.jpg", "2024:08:15 14:30:22")
+
+        self.assertEqual(ps.dated_filename(path), "2024-08-15_143022.jpg")
+
+    def test_preserves_original_suffix_case(self):
+        path = self._make_dated_photo("a.JPG", "2024:08:15 14:30:22")
+
+        self.assertEqual(ps.dated_filename(path), "2024-08-15_143022.JPG")
+
+    def test_falls_back_to_original_name_without_date(self):
+        # PNG sans EXIF : get_media_date renvoie None (voir get_photo_exif_date), rien à
+        # proposer comme nom daté — le nom d'origine est conservé plutôt qu'une erreur.
+        path = self.dir / "sans_date.png"
+        Image.new("RGB", (2, 2)).save(path)
+
+        self.assertEqual(ps.dated_filename(path), "sans_date.png")
+
+
 class TestUniqueDestination(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -571,6 +604,55 @@ class TestTransferFile(unittest.TestCase):
 
         self.assertEqual(result_different, "copied")
         self.assertEqual(result_duplicate, "duplicate")
+
+    def test_renames_using_media_date_when_requested(self):
+        src = self.src_dir / "IMG_0001.jpg"
+        img = Image.new("RGB", (2, 2))
+        exif = img.getexif()
+        exif.get_ifd(pm.ExifTags.IFD.Exif)[pm.EXIF_DATE_TIME_ORIGINAL] = "2024:08:15 14:30:22"
+        img.save(src, exif=exif)
+        pending_by_size, hashed_by_size = self._empty_index()
+
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier", rename_files=True)
+
+        self.assertEqual(result, "copied")
+        self.assertTrue((self.dest_dir / "2024-08-15_143022.jpg").exists())
+        self.assertFalse((self.dest_dir / "IMG_0001.jpg").exists())
+
+    def test_rename_falls_back_to_original_name_without_date(self):
+        src = self.src_dir / "sans_date.png"
+        Image.new("RGB", (2, 2)).save(src)
+        pending_by_size, hashed_by_size = self._empty_index()
+
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier", rename_files=True)
+
+        self.assertEqual(result, "copied")
+        self.assertTrue((self.dest_dir / "sans_date.png").exists())
+
+    def test_rename_still_detects_duplicates_by_content(self):
+        # Le renommage ne doit pas contourner la déduplication : elle porte sur le
+        # contenu (taille puis hash), jamais sur le nom du fichier.
+        (self.dest_dir / "existing.jpg").write_bytes(b"contenu-dup")
+        pending_by_size = ps.build_pending_size_index(self.dest_dir)
+        hashed_by_size = {}
+        src = self.src_dir / "photo.jpg"
+        src.write_bytes(b"contenu-dup")
+
+        result = ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier", rename_files=True)
+
+        self.assertEqual(result, "duplicate")
+
+    def test_default_does_not_rename(self):
+        src = self.src_dir / "IMG_0001.jpg"
+        img = Image.new("RGB", (2, 2))
+        exif = img.getexif()
+        exif.get_ifd(pm.ExifTags.IFD.Exif)[pm.EXIF_DATE_TIME_ORIGINAL] = "2024:08:15 14:30:22"
+        img.save(src, exif=exif)
+        pending_by_size, hashed_by_size = self._empty_index()
+
+        ps.transfer_file(src, self.dest_dir, pending_by_size, hashed_by_size, "copier")
+
+        self.assertTrue((self.dest_dir / "IMG_0001.jpg").exists())
 
 
 class TestCopyFiles(unittest.TestCase):
@@ -751,6 +833,33 @@ class TestCopyFiles(unittest.TestCase):
         )
 
         self.assertEqual((done, duplicates, errors), (2, 0, []))
+
+    def test_forwards_rename_files_to_transfer_file(self):
+        a = self._make_src_files(["a.jpg"])[0]
+        destination_map = {("2024",): [a]}
+
+        with unittest.mock.patch.object(ps, "transfer_file", wraps=ps.transfer_file) as mock_transfer:
+            ps.copy_files(destination_map, self.dest_dir, "copier", rename_files=True)
+
+        # pending_by_size/hashed_by_size (args 3 et 4) sont mutés en place par
+        # transfer_file : les comparer après coup ne refléterait plus leur état au
+        # moment de l'appel, seuls la source, la cible, le mode et rename_files le sont.
+        mock_transfer.assert_called_once()
+        args = mock_transfer.call_args.args
+        self.assertEqual((args[0], args[1], args[4], args[5]), (a, self.dest_dir / "2024", "copier", True))
+
+    def test_renames_files_end_to_end_when_requested(self):
+        photo = self.src_dir / "IMG_0001.jpg"
+        img = Image.new("RGB", (2, 2))
+        exif = img.getexif()
+        exif.get_ifd(pm.ExifTags.IFD.Exif)[pm.EXIF_DATE_TIME_ORIGINAL] = "2024:08:15 14:30:22"
+        img.save(photo, exif=exif)
+        destination_map = {("2024", "08"): [photo]}
+
+        done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier", rename_files=True)
+
+        self.assertEqual((done, duplicates, errors), (1, 0, []))
+        self.assertTrue((self.dest_dir / "2024" / "08" / "2024-08-15_143022.jpg").exists())
 
 
 class TestAggregateTree(unittest.TestCase):

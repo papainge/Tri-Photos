@@ -33,6 +33,7 @@ from tkinter import filedialog, messagebox
 from PIL import Image
 
 import media_sorter as ms
+import photo_metadata as pm
 
 
 def run_steps(root, steps):
@@ -148,6 +149,21 @@ class AppTestCase(unittest.TestCase):
         color = (n % 256, (n * 7) % 256, (n * 13) % 256)
         Image.new("RGB", (2, 2), color=color).save(path)
         os.utime(path, ((date or datetime(2024, 1, 15)).timestamp(),) * 2)
+        return path
+
+    def _make_exif_photo(self, relative_path, date):
+        # Contrairement à _make_photo (date portée par os.utime, ignorée par
+        # get_media_date), celle-ci porte une vraie date EXIF DateTimeOriginal :
+        # nécessaire pour tester le renommage optionnel, qui se base sur cette date.
+        path = self.src_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._photo_counter += 1
+        n = self._photo_counter
+        color = (n % 256, (n * 7) % 256, (n * 13) % 256)
+        img = Image.new("RGB", (2, 2), color=color)
+        exif = img.getexif()
+        exif.get_ifd(pm.ExifTags.IFD.Exif)[pm.EXIF_DATE_TIME_ORIGINAL] = date.strftime("%Y:%m:%d %H:%M:%S")
+        img.save(path, exif=exif)
         return path
 
 
@@ -582,6 +598,33 @@ class TestCopyLifecycle(AppTestCase):
         self.assertEqual(str(self.app.cancel_copy_button.cget("state")), "disabled")
         self.assertTrue(any(m[0] == "showinfo" for m in self.messages))
 
+    def test_rename_files_option_renames_copied_file(self):
+        photo = self._make_exif_photo("IMG_0001.jpg", datetime(2024, 8, 15, 14, 30, 22))
+        self.app.tree_data = {"photos": {"2024": {"08": {"15": [photo]}}}, "videos": {}}
+        self.app.dest_dir.set(str(self.dest_dir))
+        self.app.rename_files.set(True)
+
+        run_and_wait(
+            self.root, [(10, self.app.start_copy)],
+            lambda: str(self.app.create_button.cget("state")) == "normal",
+        )
+
+        copied = list(self.dest_dir.rglob("*.jpg"))
+        self.assertEqual([p.name for p in copied], ["2024-08-15_143022.jpg"])
+
+    def test_rename_files_option_off_by_default_keeps_original_name(self):
+        photo = self._make_exif_photo("IMG_0001.jpg", datetime(2024, 8, 15, 14, 30, 22))
+        self.app.tree_data = {"photos": {"2024": {"08": {"15": [photo]}}}, "videos": {}}
+        self.app.dest_dir.set(str(self.dest_dir))
+
+        run_and_wait(
+            self.root, [(10, self.app.start_copy)],
+            lambda: str(self.app.create_button.cget("state")) == "normal",
+        )
+
+        copied = list(self.dest_dir.rglob("*.jpg"))
+        self.assertEqual([p.name for p in copied], ["IMG_0001.jpg"])
+
     def test_deplacer_mode_removes_source_files(self):
         photo = self._make_photo("a.jpg")
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
@@ -738,6 +781,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
             results["recursive"] = str(self.app.recursive_frame.winfo_children()[0].cget("state"))
             results["level"] = str(self.app.level_frame.winfo_children()[1].cget("state"))
             results["media"] = str(self.app.media_frame.winfo_children()[0].cget("state"))
+            results["rename"] = str(self.app.rename_frame.winfo_children()[0].cget("state"))
             results["mode"] = str(self.app.mode_frame.winfo_children()[1].cget("state"))
 
         with unittest.mock.patch.object(ms, "get_media_date", side_effect=blocking_get_media_date):
@@ -753,6 +797,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
         self.assertEqual(str(self.app.scan_button.cget("state")), "normal")
         self.assertEqual(str(self.app.level_frame.winfo_children()[1].cget("state")), "normal")
         self.assertEqual(str(self.app.media_frame.winfo_children()[0].cget("state")), "normal")
+        self.assertEqual(str(self.app.rename_frame.winfo_children()[0].cget("state")), "normal")
         self.assertEqual(str(self.app.mode_frame.winfo_children()[1].cget("state")), "normal")
 
     def test_options_are_locked_while_copy_is_running(self):
@@ -772,6 +817,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
             results["recursive"] = str(self.app.recursive_frame.winfo_children()[0].cget("state"))
             results["level"] = str(self.app.level_frame.winfo_children()[1].cget("state"))
             results["media"] = str(self.app.media_frame.winfo_children()[0].cget("state"))
+            results["rename"] = str(self.app.rename_frame.winfo_children()[0].cget("state"))
             results["mode"] = str(self.app.mode_frame.winfo_children()[1].cget("state"))
 
         with unittest.mock.patch.object(ms, "transfer_file", side_effect=blocking_transfer_file):
@@ -787,6 +833,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
         self.assertEqual(str(self.app.scan_button.cget("state")), "normal")
         self.assertEqual(str(self.app.level_frame.winfo_children()[1].cget("state")), "normal")
         self.assertEqual(str(self.app.media_frame.winfo_children()[0].cget("state")), "normal")
+        self.assertEqual(str(self.app.rename_frame.winfo_children()[0].cget("state")), "normal")
         self.assertEqual(str(self.app.mode_frame.winfo_children()[1].cget("state")), "normal")
 
 

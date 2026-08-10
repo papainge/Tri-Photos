@@ -130,20 +130,26 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
    arborescences distinctes (`destination/Photos/...` et `destination/Vidéos/...`) au
    lieu d'un classement mélangé par date (comportement par défaut). Ce choix peut aussi
    être changé après l'analyse.
-4. Cliquer sur **Analyser** : l'arborescence correspondant aux choix ci-dessus, avec le
+4. Cocher **Renommer les fichiers selon la date (AAAA-MM-JJ_HHMMSS)** si vous voulez
+   remplacer le nom d'origine (par ex. `IMG_0001.jpg`, souvent réutilisé à l'identique
+   par plusieurs appareils) par un nom basé sur la date de prise de vue/création (par
+   ex. `2024-08-15_143022.jpg`). Un fichier sans date exploitable (classé dans
+   `No Info`) garde son nom d'origine, faute de date à proposer. Ce réglage n'a d'effet
+   qu'au moment de la copie/du déplacement, pas sur l'arborescence de l'aperçu.
+5. Cliquer sur **Analyser** : l'arborescence correspondant aux choix ci-dessus, avec le
    nombre de fichiers à chaque niveau, s'affiche. Le total (avec la répartition
    photos/vidéos et le temps qu'a pris l'analyse) reste visible au-dessus de
    l'arborescence pendant toute l'opération. La lecture des dates est parallélisée sur
    plusieurs fichiers à la fois pour accélérer l'analyse des dossiers volumineux. Si elle
    prend malgré tout trop de temps, le bouton **Annuler** (à côté d'Analyser) l'interrompt
    à la volée.
-5. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
+6. Cliquer sur **Choisir...** (destination) pour désigner le dossier dans lequel créer
    l'arborescence. Ce dossier ne peut pas être le dossier source, ni un de ses
    sous-dossiers (refusé au moment de lancer la copie, pour éviter de copier les
    fichiers dans le dossier en cours d'analyse).
-6. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou
+7. Choisir l'**action** : *Copier* (les originaux sont conservés, par défaut) ou
    *Déplacer* (les originaux sont supprimés une fois transférés).
-7. Cliquer sur **Créer l'arborescence et copier/déplacer les fichiers**. Une copie (ou
+8. Cliquer sur **Créer l'arborescence et copier/déplacer les fichiers**. Une copie (ou
    le fichier déplacé) est placée dans le sous-dossier correspondant (par exemple
    `destination/2024/08-Août/15/`, ou `destination/Photos/2024/08-Août/15/` si Photos et
    Vidéos sont séparés). Les fichiers déjà présents dans le dossier de destination (même

@@ -353,6 +353,21 @@ def partial_file_hash(path: Path, sample_size: int = 65536) -> str:
     return digest.hexdigest()
 
 
+def dated_filename(path: Path) -> str:
+    """Construit un nom de fichier basé sur la date de prise de vue/création
+    (AAAA-MM-JJ_HHMMSS), pour le renommage optionnel lors du transfert (voir
+    transfer_file). Relit la métadonnée plutôt que de réutiliser celle déjà lue par
+    scan_media : celle-ci n'est pas conservée au-delà du regroupement par année/mois/jour,
+    et cette relecture ne porte que sur l'en-tête du fichier (bon marché, y compris pour
+    une vidéo). Renvoie le nom d'origine si aucune date exploitable n'est trouvée
+    (fichiers classés sous NO_INFO_LABEL, qui n'ont par définition pas de date à
+    proposer)."""
+    date = get_media_date(path)
+    if date is None:
+        return path.name
+    return f"{date.strftime('%Y-%m-%d_%H%M%S')}{path.suffix}"
+
+
 def unique_destination(dest_dir: Path, filename: str) -> Path:
     """Évite d'écraser un fichier existant en suffixant _1, _2, ... en cas de collision."""
     dest = dest_dir / filename
@@ -389,7 +404,8 @@ def build_pending_size_index(target_dir: Path) -> dict:
 
 
 def transfer_file(
-    src_file: Path, target_dir: Path, pending_by_size: dict, hashed_by_size: dict, mode: str
+    src_file: Path, target_dir: Path, pending_by_size: dict, hashed_by_size: dict, mode: str,
+    rename_files: bool = False,
 ) -> str:
     """Copie ou déplace src_file vers target_dir, sauf si son contenu s'y trouve déjà.
 
@@ -410,6 +426,11 @@ def transfer_file(
     hashed_by_size (dict {taille: {hash_partiel: {"pending": [Path, ...], "hashes":
     {hash_complet, ...}}}}, à initialiser vide) et pending_by_size forment ensemble
     l'index des fichiers déjà connus dans target_dir.
+
+    Si rename_files est vrai, le fichier transféré est renommé selon sa date de
+    prise de vue/création (voir dated_filename) plutôt que de garder son nom d'origine.
+    La détection de doublons ci-dessus porte toujours sur le contenu, jamais sur le nom :
+    un doublon renommé reste détecté comme tel.
 
     En mode "deplacer", un doublon est tout de même supprimé de la source puisqu'une
     copie de son contenu existe déjà à destination. Renvoie "duplicate", "copied" ou
@@ -454,7 +475,8 @@ def transfer_file(
             src_file.unlink()
         return "duplicate"
 
-    dst_file = unique_destination(target_dir, src_file.name)
+    filename = dated_filename(src_file) if rename_files else src_file.name
+    dst_file = unique_destination(target_dir, filename)
     if mode == "deplacer":
         shutil.move(str(src_file), str(dst_file))
     else:
@@ -481,7 +503,7 @@ class CopyCancelled(Exception):
 
 def copy_files(
     destination_map: dict, dest_path: Path, mode: str,
-    cancel_event: threading.Event = None, on_progress=None,
+    cancel_event: threading.Event = None, on_progress=None, rename_files: bool = False,
 ) -> tuple:
     """Copie ou déplace chaque groupe de fichiers de destination_map (voir
     build_destination_map) vers dest_path, un sous-dossier par clé, avec détection de
@@ -494,6 +516,8 @@ def copy_files(
 
     on_progress(done), si fourni, est appelé après chaque fichier traité (succès,
     doublon ou erreur).
+
+    rename_files est transmis tel quel à transfer_file (voir dated_filename).
 
     Renvoie (done, duplicates, errors).
     """
@@ -525,7 +549,7 @@ def copy_files(
             if cancel_event is not None and cancel_event.is_set():
                 raise CopyCancelled(done, duplicates, errors)
             try:
-                if transfer_file(src_file, target_dir, pending_by_size, hashed_by_size, mode) == "duplicate":
+                if transfer_file(src_file, target_dir, pending_by_size, hashed_by_size, mode, rename_files) == "duplicate":
                     duplicates += 1
             except Exception as exc:
                 errors.append(f"{src_file}: {exc}")
@@ -546,6 +570,7 @@ class MediaSorterApp:
         self.sort_level = tk.StringVar(value="jour")
         self.copy_mode = tk.StringVar(value="copier")
         self.separate_media = tk.BooleanVar(value=False)
+        self.rename_files = tk.BooleanVar(value=False)
         self.recursive = tk.BooleanVar(value=True)
         self.tree_data = {}
         self._scanned_source_path = None
@@ -596,6 +621,13 @@ class MediaSorterApp:
         ttk.Checkbutton(
             self.media_frame, text="Séparer Photos et Vidéos à la racine de la destination",
             variable=self.separate_media, command=self._on_options_change,
+        ).pack(side="left")
+
+        self.rename_frame = ttk.Frame(self.root)
+        self.rename_frame.pack(fill="x", **pad)
+        ttk.Checkbutton(
+            self.rename_frame, text="Renommer les fichiers selon la date (AAAA-MM-JJ_HHMMSS)",
+            variable=self.rename_files,
         ).pack(side="left")
 
         self.status_label = ttk.Label(self.root, text="Choisissez un dossier source, puis cliquez sur Analyser.")
@@ -651,7 +683,7 @@ class MediaSorterApp:
 
     def _option_widgets(self):
         widgets = []
-        for frame in (self.recursive_frame, self.level_frame, self.media_frame, self.mode_frame):
+        for frame in (self.recursive_frame, self.level_frame, self.media_frame, self.rename_frame, self.mode_frame):
             widgets.extend(frame.winfo_children())
         return widgets
 
@@ -900,7 +932,7 @@ class MediaSorterApp:
         self._copy_cancel_event = threading.Event()
         threading.Thread(
             target=self._copy_worker,
-            args=(dest_path, destination_map, mode, self._copy_cancel_event),
+            args=(dest_path, destination_map, mode, self._copy_cancel_event, self.rename_files.get()),
             daemon=True,
         ).start()
 
@@ -910,12 +942,15 @@ class MediaSorterApp:
         self.cancel_copy_button.config(state="disabled")
         self.status_label.config(text="Annulation en cours...")
 
-    def _copy_worker(self, dest_path: Path, destination_map: dict, mode: str, cancel_event: threading.Event):
+    def _copy_worker(
+        self, dest_path: Path, destination_map: dict, mode: str, cancel_event: threading.Event, rename_files: bool,
+    ):
         try:
             done, duplicates, errors = copy_files(
                 destination_map, dest_path, mode,
                 cancel_event=cancel_event,
                 on_progress=lambda done: self.root.after(0, self._update_progress, done),
+                rename_files=rename_files,
             )
         except CopyCancelled as exc:
             done, duplicates, errors = exc.args
