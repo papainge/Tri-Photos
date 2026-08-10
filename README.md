@@ -154,11 +154,15 @@ et `dist/` reste un simple dossier de build local, ignoré par git.
 
 ## Tests
 
-Chaque module de `src/` a son fichier de tests dédié (module `unittest`, sans
-dépendance supplémentaire) :
+Chaque module de `src/` a son fichier de tests dédié (module `unittest`) :
 
 - `tests/test_media_date_utils.py` — filtre de plausibilité des dates (bornes acceptées/rejetées)
-- `tests/test_photo_metadata.py` — lecture EXIF (photo_metadata.py)
+- `tests/test_photo_metadata.py` — lecture EXIF (photo_metadata.py). Inclut un vrai
+  fichier HEIC/HEIF, avec et sans le plugin optionnel `pillow-heif` actif (chaque cas
+  isolé dans un sous-processus dédié : `register_heif_opener()` s'enregistre
+  globalement pour tout l'interpréteur, sans possibilité de l'annuler, ce qui
+  contaminerait les autres tests du même process s'il tournait dans le process
+  principal). Ces deux tests sont sautés si `pillow-heif` n'est pas installé
 - `tests/test_video_metadata.py` — parseurs MP4/AVI/WMV/MKV, et leurs tests de charge
   (fichiers vidéo de centaines de Mo, générés en fichiers creux/sparse pour rester
   rapides à créer, qui vérifient que chaque parseur saute bien par-dessus les données
@@ -186,7 +190,9 @@ L'ensemble de la suite (tests unitaires + charge) s'exécute en quelques seconde
 
 Elle est aussi lancée automatiquement sur Windows et Linux (via Xvfb), en Python 3.9
 (minimum annoncé ci-dessus) et 3.12, à chaque push et pull request sur `master`
-([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) — `pillow-heif` y est
+installé pour que les tests HEIC/HEIF ci-dessus s'y exécutent réellement plutôt que
+d'y être sautés.
 
 ## Formats supportés
 

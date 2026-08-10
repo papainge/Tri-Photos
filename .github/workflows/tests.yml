@@ -30,6 +30,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Installer pillow-heif (dépendance optionnelle, testée aussi en CI)
+        run: pip install pillow-heif
+
       - name: Installer Xvfb (Linux, pas d'écran par défaut)
         if: runner.os == 'Linux'
         run: |
