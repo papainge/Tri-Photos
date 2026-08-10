@@ -173,25 +173,6 @@ class AppTestCase(unittest.TestCase):
 
 
 class TestFolderPickers(AppTestCase):
-    def test_choose_source_sets_source_dir_from_dialog(self):
-        filedialog.askdirectory = lambda **k: str(self.src_dir)
-
-        # Le comptage rapide déclenché en arrière-plan est hors sujet ici (voir
-        # TestPreScanCount) : sans mainloop actif, laisser son thread démarrer ferait
-        # échouer son root.after() une fois ce test terminé et self.root détruit.
-        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
-            self.app.choose_source()
-
-        self.assertEqual(self.app.source_dir.get(), str(self.src_dir))
-
-    def test_choose_source_ignores_cancelled_dialog(self):
-        self.app.source_dir.set("valeur initiale")
-        filedialog.askdirectory = lambda **k: ""
-
-        self.app.choose_source()
-
-        self.assertEqual(self.app.source_dir.get(), "valeur initiale")
-
     def test_choose_dest_sets_dest_dir_from_dialog(self):
         filedialog.askdirectory = lambda **k: str(self.dest_dir)
 
@@ -200,76 +181,67 @@ class TestFolderPickers(AppTestCase):
         self.assertEqual(self.app.dest_dir.get(), str(self.dest_dir))
 
 
-class TestExtraSources(AppTestCase):
+class TestSourcesList(AppTestCase):
     def setUp(self):
         super().setUp()
         self.src_dir2 = Path(self.tmpdir.name) / "src2"
         self.src_dir2.mkdir()
 
-    def test_add_extra_source_appends_to_list_and_listbox(self):
+    def test_add_source_appends_to_list_and_listbox(self):
         filedialog.askdirectory = lambda **k: str(self.src_dir2)
 
         with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
-            self.app.add_extra_source()
+            self.app.add_source()
 
-        self.assertEqual(self.app.extra_source_dirs, [self.src_dir2])
-        self.assertEqual(self.app.extra_sources_listbox.get(0, "end"), (str(self.src_dir2),))
+        self.assertEqual(self.app.source_dirs, [self.src_dir2])
+        self.assertEqual(self.app.sources_listbox.get(0, "end"), (str(self.src_dir2),))
 
-    def test_add_extra_source_ignores_cancelled_dialog(self):
+    def test_add_source_ignores_cancelled_dialog(self):
         filedialog.askdirectory = lambda **k: ""
 
-        self.app.add_extra_source()
+        self.app.add_source()
 
-        self.assertEqual(self.app.extra_source_dirs, [])
+        self.assertEqual(self.app.source_dirs, [])
 
-    def test_add_extra_source_refuses_duplicate_of_primary(self):
-        self.app.source_dir.set(str(self.src_dir))
-        filedialog.askdirectory = lambda **k: str(self.src_dir)
+    def test_add_source_refuses_duplicate_already_added(self):
+        filedialog.askdirectory = lambda **k: str(self.src_dir2)
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.add_source()
+            self.app.add_source()
 
-        self.app.add_extra_source()
-
-        self.assertEqual(self.app.extra_source_dirs, [])
+        self.assertEqual(self.app.source_dirs, [self.src_dir2])
         self.assertEqual(self.messages[0][:2], ("showinfo", "Dossier déjà ajouté"))
 
-    def test_add_extra_source_refuses_duplicate_already_added(self):
+    def test_remove_source_deletes_selected_entry(self):
         filedialog.askdirectory = lambda **k: str(self.src_dir2)
         with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
-            self.app.add_extra_source()
-            self.app.add_extra_source()
+            self.app.add_source()
+        self.app.sources_listbox.selection_set(0)
 
-        self.assertEqual(self.app.extra_source_dirs, [self.src_dir2])
-        self.assertEqual(self.messages[0][:2], ("showinfo", "Dossier déjà ajouté"))
+        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
+            self.app.remove_source()
 
-    def test_remove_extra_source_deletes_selected_entry(self):
+        self.assertEqual(self.app.source_dirs, [])
+        self.assertEqual(self.app.sources_listbox.size(), 0)
+
+    def test_remove_source_does_nothing_without_selection(self):
         filedialog.askdirectory = lambda **k: str(self.src_dir2)
         with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
-            self.app.add_extra_source()
-        self.app.extra_sources_listbox.selection_set(0)
+            self.app.add_source()
 
-        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
-            self.app.remove_extra_source()
+        self.app.remove_source()
 
-        self.assertEqual(self.app.extra_source_dirs, [])
-        self.assertEqual(self.app.extra_sources_listbox.size(), 0)
-
-    def test_remove_extra_source_does_nothing_without_selection(self):
-        filedialog.askdirectory = lambda **k: str(self.src_dir2)
-        with unittest.mock.patch.object(self.app, "_update_pre_scan_count"):
-            self.app.add_extra_source()
-
-        self.app.remove_extra_source()
-
-        self.assertEqual(self.app.extra_source_dirs, [self.src_dir2])
+        self.assertEqual(self.app.source_dirs, [self.src_dir2])
 
 
 class TestPreScanCount(AppTestCase):
-    def test_shows_count_after_choosing_source_dir(self):
+    def test_shows_count_after_adding_source_dir(self):
         self._make_photo("a.jpg")
         self._make_photo("b.jpg")
         filedialog.askdirectory = lambda **k: str(self.src_dir)
 
         run_and_wait(
-            self.root, [(10, self.app.choose_source)],
+            self.root, [(10, self.app.add_source)],
             lambda: self.app.pre_scan_label.cget("text") != "Comptage des fichiers...",
         )
 
@@ -277,7 +249,7 @@ class TestPreScanCount(AppTestCase):
         self.assertIn("2 photo(s)", self.app.pre_scan_label.cget("text"))
 
     def test_shows_no_files_message_for_empty_folder(self):
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         run_and_wait(
             self.root, [(10, self.app._update_pre_scan_count)],
@@ -288,7 +260,7 @@ class TestPreScanCount(AppTestCase):
 
     def test_recount_reflects_recursive_toggle(self):
         self._make_photo("sous_dossier/a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
         self.app.recursive.set(False)
 
         run_and_wait(
@@ -304,9 +276,9 @@ class TestPreScanCount(AppTestCase):
         )
         self.assertIn("1 fichier(s)", self.app.pre_scan_label.cget("text"))
 
-    def test_cleared_when_source_dir_is_not_a_directory(self):
+    def test_cleared_when_no_source_selected(self):
         self.app.pre_scan_label.config(text="valeur figée")
-        self.app.source_dir.set(str(self.src_dir / "introuvable"))
+        self.app.source_dirs = []
 
         self.app._update_pre_scan_count()
 
@@ -314,7 +286,7 @@ class TestPreScanCount(AppTestCase):
 
     def test_cleared_when_a_real_scan_starts(self):
         self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         run_and_wait(
             self.root, [(10, self.app._update_pre_scan_count)],
@@ -351,7 +323,7 @@ class TestOnRecursiveChange(AppTestCase):
 
     def test_updates_the_quick_count_immediately(self):
         self._make_photo("sous_dossier/a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
         self.app.recursive.set(False)
 
         run_and_wait(
@@ -490,26 +462,21 @@ class TestRefreshTreeview(AppTestCase):
 
 
 class TestStartScanValidation(AppTestCase):
-    def test_warns_when_source_dir_empty(self):
+    def test_warns_when_no_source_selected(self):
         self.app.start_scan()
 
-        self.assertEqual(self.messages, [("showwarning", "Dossier manquant", "Veuillez choisir un dossier source.")])
+        self.assertEqual(
+            self.messages,
+            [("showwarning", "Dossier manquant", "Veuillez ajouter au moins un dossier source.")],
+        )
         self.assertEqual(str(self.app.scan_button.cget("state")), "normal")
-
-    def test_errors_when_source_dir_does_not_exist(self):
-        self.app.source_dir.set(str(self.src_dir / "introuvable"))
-
-        self.app.start_scan()
-
-        self.assertEqual(len(self.messages), 1)
-        self.assertEqual(self.messages[0][0], "showerror")
 
 
 class TestScanLifecycle(AppTestCase):
     def test_successful_scan_populates_tree_and_resets_buttons(self):
         self._make_photo("a.jpg")
         self._make_photo("b.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         run_and_wait(
             self.root, [(10, self.app.start_scan)],
@@ -520,14 +487,13 @@ class TestScanLifecycle(AppTestCase):
         self.assertEqual(str(self.app.cancel_scan_button.cget("state")), "disabled")
         self.assertEqual(str(self.app.create_button.cget("state")), "normal")
 
-    def test_scan_combines_primary_and_extra_source_directories(self):
+    def test_scan_combines_multiple_source_directories(self):
         self._make_photo("a.jpg")
         other_source = Path(self.tmpdir.name) / "src2"
         other_source.mkdir()
         Image.new("RGB", (2, 2), color=(9, 9, 9)).save(other_source / "b.jpg")
 
-        self.app.source_dir.set(str(self.src_dir))
-        self.app.extra_source_dirs.append(other_source)
+        self.app.source_dirs = [self.src_dir, other_source]
 
         run_and_wait(
             self.root, [(10, self.app.start_scan)],
@@ -540,26 +506,13 @@ class TestScanLifecycle(AppTestCase):
             sorted([self.src_dir.resolve(), other_source.resolve()]),
         )
 
-    def test_scan_works_with_only_extra_sources_and_no_primary(self):
-        self._make_photo("a.jpg")
-        self.app.extra_source_dirs.append(self.src_dir)
-
-        run_and_wait(
-            self.root, [(10, self.app.start_scan)],
-            lambda: str(self.app.scan_button.cget("state")) == "normal",
-        )
-
-        self.assertEqual(self.messages, [])
-        self.assertIn("1 fichier(s)", self.app.total_label.cget("text"))
-        self.assertEqual(len(self.app.treeview.get_children()), 1)
-
     def test_buttons_toggle_while_scan_is_running(self):
         # get_media_date bloque tant qu'on n'a pas appelé release.set() : contrairement à
         # un délai fixe, ça garantit de pouvoir observer l'état "en cours" sans dépendre
         # de la vitesse de la machine (un seul petit fichier peut être scanné en moins
         # d'une milliseconde).
         self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
         release = threading.Event()
 
         def blocking_get_media_date(path, use_filename_fallback=False, _original=ms.get_media_date):
@@ -591,7 +544,7 @@ class TestScanLifecycle(AppTestCase):
         # prouvait qu'une analyse réelle (start_scan -> _scan_worker) transmet bien ce
         # choix à scan_media plutôt que d'utiliser une valeur figée.
         self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         with unittest.mock.patch.object(ms, "scan_media", return_value={"photos": {}, "videos": {}}) as mock_scan_media:
             self.app.recursive.set(False)
@@ -610,7 +563,7 @@ class TestScanLifecycle(AppTestCase):
 
     def test_filename_fallback_checkbox_state_is_forwarded_to_scan_media(self):
         self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         with unittest.mock.patch.object(ms, "scan_media", return_value={"photos": {}, "videos": {}}) as mock_scan_media:
             self.app.use_filename_fallback.set(True)
@@ -631,7 +584,7 @@ class TestScanLifecycle(AppTestCase):
         # Sans EXIF, seul le nom du fichier porte une date exploitable.
         path = self.src_dir / "IMG_20230715_143022.jpg"
         Image.new("RGB", (2, 2)).save(path)
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
         self.app.use_filename_fallback.set(True)
 
         run_and_wait(
@@ -644,7 +597,7 @@ class TestScanLifecycle(AppTestCase):
     def test_filename_without_exif_stays_in_no_info_when_fallback_disabled(self):
         path = self.src_dir / "IMG_20230715_143022.jpg"
         Image.new("RGB", (2, 2)).save(path)
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         run_and_wait(
             self.root, [(10, self.app.start_scan)],
@@ -654,7 +607,7 @@ class TestScanLifecycle(AppTestCase):
         self.assertIn(path, self.app.tree_data["photos"][ms.NO_INFO_LABEL])
 
     def test_scan_of_empty_folder_shows_no_files_message(self):
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         run_and_wait(
             self.root, [(10, self.app.start_scan)],
@@ -671,7 +624,7 @@ class TestScanLifecycle(AppTestCase):
         # mock déclenche l'annulation lui-même après exactement 5 appels réels.
         for i in range(30):
             self._make_photo(f"p{i}.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         call_count = {"n": 0}
         lock = threading.Lock()
@@ -694,7 +647,7 @@ class TestScanLifecycle(AppTestCase):
         self.assertEqual(str(self.app.cancel_scan_button.cget("state")), "disabled")
 
     def test_scan_error_shows_message_and_resets_buttons(self):
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         with unittest.mock.patch.object(ms, "scan_media", side_effect=RuntimeError("boom")):
             run_and_wait(
@@ -761,7 +714,7 @@ class TestStartCopyValidation(AppTestCase):
 
     def test_errors_when_dest_dir_equals_a_second_scanned_source_dir(self):
         # Le garde-fou doit couvrir tous les dossiers réellement analysés, pas seulement
-        # le premier (voir _collect_source_paths / le scan multi-sources).
+        # le premier (voir le scan multi-sources, source_dirs).
         photo = self._make_photo("a.jpg")
         other_source = Path(self.tmpdir.name) / "src2"
         other_source.mkdir()
@@ -774,20 +727,20 @@ class TestStartCopyValidation(AppTestCase):
         self.assertEqual(len(self.messages), 1)
         self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
 
-    def test_editing_source_dir_field_after_scan_does_not_bypass_the_guard(self):
-        # Le garde-fou doit se baser sur le dossier réellement analysé (celui qui a
-        # produit tree_data), pas sur le contenu actuel du champ "Dossier source" :
-        # sinon il suffit de le vider ou de le changer après l'analyse pour contourner
-        # la vérification et copier les fichiers dans le dossier en cours d'analyse.
+    def test_editing_source_dirs_after_scan_does_not_bypass_the_guard(self):
+        # Le garde-fou doit se baser sur les dossiers réellement analysés (ceux qui ont
+        # produit tree_data), pas sur le contenu actuel de la liste des sources : sinon
+        # il suffit de la vider ou de la changer après l'analyse pour contourner la
+        # vérification et copier les fichiers dans un dossier en cours d'analyse.
         self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
 
         run_and_wait(
             self.root, [(10, self.app.start_scan)],
             lambda: str(self.app.scan_button.cget("state")) == "normal",
         )
 
-        self.app.source_dir.set("")  # vidé après coup, comme le ferait un utilisateur
+        self.app.source_dirs = []  # vidée après coup, comme le ferait un utilisateur
         self.app.dest_dir.set(str(self.src_dir))
 
         self.app.start_copy()
@@ -959,7 +912,7 @@ class TestCopyLifecycle(AppTestCase):
 class TestScanCopyMutualExclusion(AppTestCase):
     def test_start_copy_is_a_noop_while_scan_is_running(self):
         photo = self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
         self.app.dest_dir.set(str(self.dest_dir))
         release = threading.Event()
@@ -982,7 +935,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
 
     def test_start_scan_is_a_noop_while_copy_is_running(self):
         photo = self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
         self.app.dest_dir.set(str(self.dest_dir))
         release = threading.Event()
@@ -1004,7 +957,7 @@ class TestScanCopyMutualExclusion(AppTestCase):
 
     def test_options_are_locked_while_scan_is_running(self):
         self._make_photo("a.jpg")
-        self.app.source_dir.set(str(self.src_dir))
+        self.app.source_dirs = [self.src_dir]
         release = threading.Event()
 
         def blocking_get_media_date(path, use_filename_fallback=False, _original=ms.get_media_date):

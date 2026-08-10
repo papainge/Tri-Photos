@@ -27,8 +27,7 @@ class MediaSorterApp:
         self.root.title("Tri de photos par date")
         self.root.geometry("760x620")
 
-        self.source_dir = tk.StringVar()
-        self.extra_source_dirs = []  # dossiers sources supplémentaires (voir add_extra_source)
+        self.source_dirs = []  # dossiers sources sélectionnés (voir add_source)
         self.dest_dir = tk.StringVar()
         self.sort_level = tk.StringVar(value="jour")
         self.copy_mode = tk.StringVar(value="copier")
@@ -51,27 +50,24 @@ class MediaSorterApp:
 
         src_frame = ttk.Frame(self.root)
         src_frame.pack(fill="x", **pad)
-        ttk.Label(src_frame, text="Dossier source :").pack(side="left")
-        ttk.Entry(src_frame, textvariable=self.source_dir).pack(side="left", fill="x", expand=True, padx=6)
-        ttk.Button(src_frame, text="Choisir...", command=self.choose_source).pack(side="left")
-        self.scan_button = ttk.Button(src_frame, text="Analyser", command=self.start_scan)
-        self.scan_button.pack(side="left", padx=(6, 0))
+        ttk.Label(src_frame, text="Dossiers sources :").pack(anchor="w")
+        src_row = ttk.Frame(src_frame)
+        src_row.pack(fill="x", pady=(4, 0))
+        self.sources_listbox = tk.Listbox(src_row, height=4, exportselection=False)
+        self.sources_listbox.pack(side="left", fill="x", expand=True)
+        src_buttons = ttk.Frame(src_row)
+        src_buttons.pack(side="left", padx=(6, 0))
+        ttk.Button(src_buttons, text="Ajouter...", command=self.add_source).pack(fill="x")
+        ttk.Button(src_buttons, text="Retirer", command=self.remove_source).pack(fill="x", pady=(4, 0))
+
+        scan_row = ttk.Frame(self.root)
+        scan_row.pack(fill="x", **pad)
+        self.scan_button = ttk.Button(scan_row, text="Analyser", command=self.start_scan)
+        self.scan_button.pack(side="left")
         self.cancel_scan_button = ttk.Button(
-            src_frame, text="Annuler", command=self.cancel_scan, state="disabled",
+            scan_row, text="Annuler", command=self.cancel_scan, state="disabled",
         )
         self.cancel_scan_button.pack(side="left", padx=(6, 0))
-
-        extra_sources_frame = ttk.Frame(self.root)
-        extra_sources_frame.pack(fill="x", **pad)
-        ttk.Label(extra_sources_frame, text="Dossiers sources supplémentaires (optionnel) :").pack(anchor="w")
-        extra_sources_row = ttk.Frame(extra_sources_frame)
-        extra_sources_row.pack(fill="x", pady=(4, 0))
-        self.extra_sources_listbox = tk.Listbox(extra_sources_row, height=3, exportselection=False)
-        self.extra_sources_listbox.pack(side="left", fill="x", expand=True)
-        extra_sources_buttons = ttk.Frame(extra_sources_row)
-        extra_sources_buttons.pack(side="left", padx=(6, 0))
-        ttk.Button(extra_sources_buttons, text="Ajouter...", command=self.add_extra_source).pack(fill="x")
-        ttk.Button(extra_sources_buttons, text="Retirer", command=self.remove_extra_source).pack(fill="x", pady=(4, 0))
 
         self.recursive_frame = ttk.Frame(self.root)
         self.recursive_frame.pack(fill="x", **pad)
@@ -114,7 +110,7 @@ class MediaSorterApp:
             variable=self.rename_files,
         ).pack(side="left")
 
-        self.status_label = ttk.Label(self.root, text="Choisissez un dossier source, puis cliquez sur Analyser.")
+        self.status_label = ttk.Label(self.root, text="Ajoutez un dossier source, puis cliquez sur Analyser.")
         self.status_label.pack(fill="x", padx=8)
 
         self.progress = ttk.Progressbar(self.root, mode="indeterminate")
@@ -189,12 +185,6 @@ class MediaSorterApp:
         verb = "copier" if self.copy_mode.get() == "copier" else "déplacer"
         self.create_button.config(text=f"Créer l'arborescence et {verb} les fichiers")
 
-    def choose_source(self):
-        path = filedialog.askdirectory(title="Choisir le dossier de photos et vidéos à trier")
-        if path:
-            self.source_dir.set(path)
-            self._update_pre_scan_count()
-
     @staticmethod
     def _resolve_key(path: Path):
         try:
@@ -202,51 +192,31 @@ class MediaSorterApp:
         except OSError:
             return path
 
-    def _collect_source_paths(self, primary_path=None):
-        """Combine le dossier source principal (déjà validé par l'appelant — Path si
-        renseigné et valide, sinon None) et les dossiers sources supplémentaires (voir
-        add_extra_source) en une seule liste, sans doublons : deux orthographes du même
-        dossier (chemin relatif/absolu, casse sous Windows...) ne doivent pas le faire
-        analyser deux fois — comparaison sur le chemin résolu plutôt que la chaîne brute.
-        """
-        paths = []
-        seen = set()
-        candidates = ([primary_path] if primary_path is not None else []) + list(self.extra_source_dirs)
-        for path in candidates:
-            key = self._resolve_key(path)
-            if key in seen:
-                continue
-            seen.add(key)
-            paths.append(path)
-        return paths
-
-    def add_extra_source(self):
-        path = filedialog.askdirectory(title="Choisir un dossier source supplémentaire")
+    def add_source(self):
+        # Note UX : filedialog.askdirectory() ne permet de choisir qu'un seul dossier à
+        # la fois (limitation de tk_chooseDirectory, sans équivalent "askdirectories" au
+        # pluriel comme pour les fichiers) — plusieurs clics sur "Ajouter..." sont donc
+        # nécessaires pour plusieurs dossiers, il n'existe pas de sélection multiple native.
+        path = filedialog.askdirectory(title="Choisir un dossier de photos et vidéos à trier")
         if not path:
             return
         candidate = Path(path)
         key = self._resolve_key(candidate)
-
-        already_selected = set()
-        primary = self.source_dir.get().strip()
-        if primary:
-            already_selected.add(self._resolve_key(Path(primary)))
-        already_selected.update(self._resolve_key(existing) for existing in self.extra_source_dirs)
-        if key in already_selected:
+        if key in {self._resolve_key(existing) for existing in self.source_dirs}:
             messagebox.showinfo("Dossier déjà ajouté", "Ce dossier fait déjà partie des sources sélectionnées.")
             return
 
-        self.extra_source_dirs.append(candidate)
-        self.extra_sources_listbox.insert("end", str(candidate))
+        self.source_dirs.append(candidate)
+        self.sources_listbox.insert("end", str(candidate))
         self._update_pre_scan_count()
 
-    def remove_extra_source(self):
-        selection = self.extra_sources_listbox.curselection()
+    def remove_source(self):
+        selection = self.sources_listbox.curselection()
         if not selection:
             return
         index = selection[0]
-        del self.extra_source_dirs[index]
-        self.extra_sources_listbox.delete(index)
+        del self.source_dirs[index]
+        self.sources_listbox.delete(index)
         self._update_pre_scan_count()
 
     def _on_recursive_change(self):
@@ -277,12 +247,10 @@ class MediaSorterApp:
             )
 
     def _update_pre_scan_count(self):
-        source = self.source_dir.get().strip()
-        primary_path = Path(source) if source and Path(source).is_dir() else None
-        source_paths = self._collect_source_paths(primary_path)
-        if not source_paths:
+        if not self.source_dirs:
             self.pre_scan_label.config(text="")
             return
+        source_paths = list(self.source_dirs)
 
         recursive = self.recursive.get()
         self._pre_count_generation += 1
@@ -325,18 +293,10 @@ class MediaSorterApp:
         if self._copy_cancel_event is not None:
             return  # une copie/déplacement est déjà en cours
 
-        source = self.source_dir.get().strip()
-        primary_path = None
-        if source:
-            primary_path = Path(source)
-            if not primary_path.is_dir():
-                messagebox.showerror("Dossier invalide", "Le dossier source n'existe pas.")
-                return
-
-        source_paths = self._collect_source_paths(primary_path)
-        if not source_paths:
-            messagebox.showwarning("Dossier manquant", "Veuillez choisir un dossier source.")
+        if not self.source_dirs:
+            messagebox.showwarning("Dossier manquant", "Veuillez ajouter au moins un dossier source.")
             return
+        source_paths = list(self.source_dirs)
 
         self.create_button.config(state="disabled")
         self._set_options_locked(True)
