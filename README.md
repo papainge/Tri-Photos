@@ -237,16 +237,17 @@ d'y être sautés.
   Seuls des motifs sans ambiguïté sont reconnus : un nom qui ne contient aucune date
   reconnaissable reste classé dans `No Info`.
 
-Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` :
+Pour la lecture des photos HEIC/HEIF (iPhone), installer en plus `pillow-heif` (version
+épinglée dans `requirements-heif.txt`, aussi utilisée en CI) :
 
 ```bash
-pip install pillow-heif
+pip install -r requirements-heif.txt
 ```
 
 (`TriPhotos.exe` et le script `run.sh` n'incluent que Pillow par défaut ; sans
 `pillow-heif`, les fichiers HEIC sont classés dans `No Info` faute de pouvoir lire leur
-date EXIF. Pour l'inclure dans l'exécutable Windows, l'ajouter à `requirements.txt` puis
-relancer `packaging\build.bat`).
+date EXIF. Pour l'inclure dans l'exécutable Windows, ajouter le contenu de
+`requirements-heif.txt` à `requirements.txt` puis relancer `packaging\build.bat`).
 
 ## Licence
 
