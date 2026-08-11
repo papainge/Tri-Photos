@@ -841,6 +841,25 @@ def copy_files(
     return done, duplicates, errors
 
 
+def summarize_transfer(done: int, duplicates: int, errors: list, mode: str) -> tuple:
+    """Calcule les éléments de résumé communs aux trois affichages d'un transfert
+    (CLI, fin de copie et annulation côté UI, voir cli.py et app_ui.py) à partir du
+    résultat de copy_files() : nombre de fichiers réellement transférés, libellé de
+    l'action au passé, et texte décrivant les doublons rencontrés. Centralisé ici plutôt
+    que réécrit trois fois indépendamment, pour que ce calcul et le choix des libellés
+    n'aient qu'un seul endroit où évoluer — la composition de la phrase finale reste
+    propre à chaque appelant (le message diffère selon annulation/succès/erreurs).
+
+    Renvoie un tuple (transferred, action_past, duplicates_text), dans le même esprit
+    que le tuple renvoyé par copy_files() lui-même.
+    """
+    transferred = done - duplicates - len(errors)
+    action_past = "déplacé(s)" if mode == "deplacer" else "copié(s)"
+    duplicate_word = "supprimé(s) de la source" if mode == "deplacer" else "ignoré(s)"
+    duplicates_text = f"{duplicates} doublon(s) {duplicate_word}"
+    return transferred, action_past, duplicates_text
+
+
 def main():
     # Des arguments en ligne de commande signalent un usage automatisé (voir cli.py) :
     # sans argument, comportement inchangé (lancement de l'interface Tkinter).

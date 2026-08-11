@@ -1190,6 +1190,36 @@ class TestCopyFiles(unittest.TestCase):
         self.assertTrue((self.dest_dir / "2024" / "08" / "2024-08-15_143022.jpg").exists())
 
 
+class TestSummarizeTransfer(unittest.TestCase):
+    """Calcul partagé entre cli.py et les deux affichages de fin de copie côté UI
+    (app_ui._copy_done, app_ui._copy_cancelled) — voir summarize_transfer()."""
+
+    def test_copier_mode_wording(self):
+        transferred, action_past, duplicates_text = ps.summarize_transfer(
+            done=5, duplicates=2, errors=[], mode="copier",
+        )
+
+        self.assertEqual(transferred, 3)
+        self.assertEqual(action_past, "copié(s)")
+        self.assertEqual(duplicates_text, "2 doublon(s) ignoré(s)")
+
+    def test_deplacer_mode_wording(self):
+        transferred, action_past, duplicates_text = ps.summarize_transfer(
+            done=5, duplicates=2, errors=[], mode="deplacer",
+        )
+
+        self.assertEqual(transferred, 3)
+        self.assertEqual(action_past, "déplacé(s)")
+        self.assertEqual(duplicates_text, "2 doublon(s) supprimé(s) de la source")
+
+    def test_transferred_count_excludes_duplicates_and_errors(self):
+        transferred, _action_past, _duplicates_text = ps.summarize_transfer(
+            done=10, duplicates=3, errors=["a.jpg: boom", "b.jpg: boom"], mode="copier",
+        )
+
+        self.assertEqual(transferred, 5)
+
+
 class TestAggregateTree(unittest.TestCase):
     def setUp(self):
         self.tree = {

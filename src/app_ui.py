@@ -533,8 +533,7 @@ class MediaSorterApp:
     def _copy_cancelled(self, done, duplicates, errors, mode):
         self.progress.pack_forget()
         self._reset_copy_buttons()
-        transferred = done - duplicates - len(errors)
-        action_past = "déplacé(s)" if mode == "deplacer" else "copié(s)"
+        transferred, action_past, _duplicates_text = media_sorter.summarize_transfer(done, duplicates, errors, mode)
         self.status_label.config(text=f"Annulé : {transferred} fichier(s) {action_past} avant l'arrêt.")
 
     def _copy_failed(self, exc):
@@ -551,20 +550,16 @@ class MediaSorterApp:
     def _copy_done(self, done, duplicates, errors, mode):
         self.progress.pack_forget()
         self._reset_copy_buttons()
-        transferred = done - duplicates - len(errors)
-        if mode == "deplacer":
-            action_past = "déplacé(s)"
-            dup_text = f"{duplicates} doublon(s) supprimé(s) de la source"
-        else:
-            action_past = "copié(s)"
-            dup_text = f"{duplicates} doublon(s) ignoré(s)"
+        transferred, action_past, duplicates_text = media_sorter.summarize_transfer(done, duplicates, errors, mode)
         if errors:
-            self.status_label.config(text=f"Terminé avec {len(errors)} erreur(s) sur {done} fichier(s), {dup_text}.")
+            self.status_label.config(
+                text=f"Terminé avec {len(errors)} erreur(s) sur {done} fichier(s), {duplicates_text}."
+            )
             messagebox.showwarning("Terminé avec erreurs", "\n".join(errors[:20]) + ("\n..." if len(errors) > 20 else ""))
         else:
-            self.status_label.config(text=f"Terminé : {transferred} fichier(s) {action_past}, {dup_text}.")
+            self.status_label.config(text=f"Terminé : {transferred} fichier(s) {action_past}, {duplicates_text}.")
             messagebox.showinfo(
                 "Terminé",
                 f"{transferred} fichier(s) {action_past} avec succès dans :\n{self.dest_dir.get()}\n\n"
-                f"{dup_text} (déjà présent(s) dans le dossier de destination).",
+                f"{duplicates_text} (déjà présent(s) dans le dossier de destination).",
             )

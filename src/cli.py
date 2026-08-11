@@ -133,10 +133,8 @@ def run_cli(argv) -> int:
         print(f"Erreur lors de la copie : {exc}", file=sys.stderr)
         return 1
 
-    transferred = done - duplicates - len(errors)
-    action_past = "déplacé(s)" if args.mode == "deplacer" else "copié(s)"
-    dup_text = f"{duplicates} doublon(s) {'supprimé(s) de la source' if args.mode == 'deplacer' else 'ignoré(s)'}"
-    print(f"Terminé : {transferred} fichier(s) {action_past}, {dup_text}.")
+    transferred, action_past, duplicates_text = media_sorter.summarize_transfer(done, duplicates, errors, args.mode)
+    print(f"Terminé : {transferred} fichier(s) {action_past}, {duplicates_text}.")
     if errors:
         print(f"{len(errors)} erreur(s) :", file=sys.stderr)
         for error in errors:
