@@ -205,13 +205,6 @@ class MediaSorterApp:
     def _save_preferences(self):
         media_sorter.save_preferences(self.sort_level.get(), self.separate_media.get(), self.copy_mode.get())
 
-    @staticmethod
-    def _resolve_key(path: Path):
-        try:
-            return path.resolve()
-        except OSError:
-            return path
-
     def add_source(self):
         # Note UX : filedialog.askdirectory() ne permet de choisir qu'un seul dossier à
         # la fois (limitation de tk_chooseDirectory, sans équivalent "askdirectories" au
@@ -221,8 +214,8 @@ class MediaSorterApp:
         if not path:
             return
         candidate = Path(path)
-        key = self._resolve_key(candidate)
-        if key in {self._resolve_key(existing) for existing in self.source_dirs}:
+        key = media_sorter.resolve_path(candidate)
+        if key in {media_sorter.resolve_path(existing) for existing in self.source_dirs}:
             messagebox.showinfo("Dossier déjà ajouté", "Ce dossier fait déjà partie des sources sélectionnées.")
             return
 
@@ -383,7 +376,7 @@ class MediaSorterApp:
         self.progress.pack_forget()
         self._reset_scan_buttons()
         self.last_scan_duration = time.time() - self._scan_start_time
-        self._scanned_source_paths = [self._resolve_key(p) for p in source_paths]
+        self._scanned_source_paths = [media_sorter.resolve_path(p) for p in source_paths]
         self.tree_data = tree
         self._refresh_treeview()
 
@@ -461,19 +454,16 @@ class MediaSorterApp:
         # Comparé aux dossiers réellement analysés (ceux qui ont produit tree_data), pas
         # au contenu actuel du champ "Dossier source" : sinon il suffit de vider ou
         # modifier ce champ après l'analyse pour contourner la vérification.
-        if self._scanned_source_paths:
-            resolved_dest = self._resolve_key(dest_path)
-            if any(
-                resolved_dest == scanned or resolved_dest.is_relative_to(scanned)
-                for scanned in self._scanned_source_paths
-            ):
-                messagebox.showerror(
-                    "Dossier de destination invalide",
-                    "Le dossier de destination ne peut pas être un dossier source analysé, ni un de "
-                    "ses sous-dossiers : cela copierait les fichiers dans un dossier en cours "
-                    "d'analyse (risque de doublons en cascade, voire de boucle en mode récursif).",
-                )
-                return
+        if self._scanned_source_paths and media_sorter.is_destination_nested_in_sources(
+            dest_path, self._scanned_source_paths
+        ):
+            messagebox.showerror(
+                "Dossier de destination invalide",
+                "Le dossier de destination ne peut pas être un dossier source analysé, ni un de "
+                "ses sous-dossiers : cela copierait les fichiers dans un dossier en cours "
+                "d'analyse (risque de doublons en cascade, voire de boucle en mode récursif).",
+            )
+            return
 
         destination_map = media_sorter.build_destination_map(
             self.tree_data, self.sort_level.get(), self.separate_media.get()

@@ -819,10 +819,11 @@ class TestStartCopyValidation(AppTestCase):
         self.assertEqual(list(self.src_dir.rglob("*.jpg")), [self.src_dir / "a.jpg"])
 
     def test_start_copy_falls_back_when_dest_resolve_raises_oserror(self):
-        # _resolve_key() (utilisée partout ailleurs : add_source, _scan_done) absorbe déjà
-        # un OSError sur resolve() (chemin réseau capricieux, boucle de liens symboliques)
-        # en retombant sur le chemin non résolu — start_copy() doit en bénéficier au même
-        # titre, plutôt que de laisser une trace Python brute remonter jusqu'à l'appelant.
+        # media_sorter.resolve_path() (partagée avec cli.py, utilisée aussi dans
+        # add_source/_scan_done) absorbe déjà un OSError sur resolve() (chemin réseau
+        # capricieux, boucle de liens symboliques) en retombant sur le chemin non résolu —
+        # start_copy() doit en bénéficier au même titre, plutôt que de laisser une trace
+        # Python brute remonter jusqu'à l'appelant.
         photo = self._make_photo("a.jpg")
         self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
         self.app._scanned_source_paths = [self.src_dir.resolve()]

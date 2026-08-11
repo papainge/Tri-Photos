@@ -22,13 +22,6 @@ from pathlib import Path
 import media_sorter
 
 
-def _resolve_key(path: Path) -> Path:
-    try:
-        return path.resolve()
-    except OSError:
-        return path
-
-
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="TriPhotos",
@@ -86,12 +79,10 @@ def run_cli(argv) -> int:
             return 1
 
     dest_path = Path(args.dest)
-    # Même garde-fou que MediaSorterApp.start_copy (voir app_ui.py) : comparé aux
-    # dossiers sources demandés, pas au contenu de destination_map, pour rejeter le cas
-    # avant même de lancer une analyse potentiellement longue.
-    resolved_dest = _resolve_key(dest_path)
-    resolved_sources = [_resolve_key(p) for p in source_paths]
-    if any(resolved_dest == s or resolved_dest.is_relative_to(s) for s in resolved_sources):
+    # Même garde-fou que MediaSorterApp.start_copy (voir app_ui.py, media_sorter.py) :
+    # comparé aux dossiers sources demandés, pas au contenu de destination_map, pour
+    # rejeter le cas avant même de lancer une analyse potentiellement longue.
+    if media_sorter.is_destination_nested_in_sources(dest_path, source_paths):
         print(
             "Erreur : le dossier de destination ne peut pas être un dossier source, ni un de ses sous-dossiers.",
             file=sys.stderr,

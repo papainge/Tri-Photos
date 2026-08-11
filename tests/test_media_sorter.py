@@ -669,6 +669,55 @@ class TestDatedFilename(unittest.TestCase):
         self.assertEqual(ps.dated_filename(path), "IMG_20230715_143022.png")
 
 
+class TestResolvePath(unittest.TestCase):
+    def test_returns_the_resolved_path(self):
+        self.assertEqual(ps.resolve_path(Path(".")), Path(".").resolve())
+
+    def test_falls_back_to_the_original_path_on_oserror(self):
+        # Chemin réseau capricieux, boucle de liens symboliques... : ne doit jamais lever,
+        # seulement retomber sur le chemin non résolu (voir app_ui.py et cli.py, les deux
+        # consommateurs qui comparent des chemins fournis par l'utilisateur).
+        path = Path("un/chemin/quelconque")
+        with unittest.mock.patch.object(Path, "resolve", side_effect=OSError("indisponible")):
+            self.assertEqual(ps.resolve_path(path), path)
+
+
+class TestIsDestinationNestedInSources(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.source = Path(self.tmpdir.name) / "source"
+        self.source.mkdir()
+        self.other_source = Path(self.tmpdir.name) / "other_source"
+        self.other_source.mkdir()
+
+    def test_true_when_dest_equals_a_source(self):
+        self.assertTrue(ps.is_destination_nested_in_sources(self.source, [self.source]))
+
+    def test_true_when_dest_is_nested_inside_a_source(self):
+        nested = self.source / "sorted"
+        nested.mkdir()
+
+        self.assertTrue(ps.is_destination_nested_in_sources(nested, [self.source]))
+
+    def test_false_when_dest_is_unrelated_to_any_source(self):
+        dest = Path(self.tmpdir.name) / "dest"
+
+        self.assertFalse(ps.is_destination_nested_in_sources(dest, [self.source]))
+
+    def test_checks_every_source_not_just_the_first(self):
+        nested = self.other_source / "sorted"
+        nested.mkdir()
+
+        self.assertTrue(ps.is_destination_nested_in_sources(nested, [self.source, self.other_source]))
+
+    def test_accepts_sources_already_resolved(self):
+        # resolve_path() est idempotente : une liste de sources déjà résolues (comme
+        # _scanned_source_paths côté app_ui.py) doit donner le même résultat qu'une liste
+        # de chemins bruts.
+        self.assertTrue(ps.is_destination_nested_in_sources(self.source, [self.source.resolve()]))
+
+
 class TestUniqueDestination(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()

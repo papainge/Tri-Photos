@@ -339,6 +339,36 @@ def _as_source_dir_list(source_dirs) -> list:
     return [Path(d) for d in source_dirs]
 
 
+def resolve_path(path: Path) -> Path:
+    """Résout un chemin, en absorbant OSError (chemin réseau capricieux, boucle de liens
+    symboliques) en retombant sur le chemin non résolu plutôt que de laisser l'exception
+    remonter. Partagée entre app_ui.py et cli.py, les deux consommateurs de ce module qui
+    comparent des chemins fournis par l'utilisateur — une résolution non protégée dans
+    l'un des deux a déjà fait planter l'UI sur ce point précis (voir start_copy)."""
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
+def is_destination_nested_in_sources(dest, sources) -> bool:
+    """Vrai si dest est égal à l'un des dossiers de sources, ou un sous-dossier de l'un
+    d'eux (une fois tous deux résolus via resolve_path) — le garde-fou empêchant de
+    copier/déplacer des fichiers dans un dossier en cours d'analyse (risque de doublons
+    en cascade, voire de boucle en mode récursif).
+
+    sources peut contenir des chemins déjà résolus ou non : resolve_path() est idempotente,
+    une double résolution ne change rien au résultat. Partagée entre app_ui.py (start_copy)
+    et cli.py (run_cli) plutôt que dupliquée : chacun affiche l'erreur à sa façon (messagebox
+    contre stderr), mais la condition elle-même n'a qu'un seul endroit où évoluer.
+    """
+    resolved_dest = resolve_path(Path(dest))
+    return any(
+        resolved_dest == resolved_source or resolved_dest.is_relative_to(resolved_source)
+        for resolved_source in (resolve_path(Path(source)) for source in sources)
+    )
+
+
 def count_media_files(source_dirs, recursive: bool = True) -> dict:
     """Compte rapidement les fichiers photo/vidéo d'un ou plusieurs dossiers sources
     (voir _as_source_dir_list) par catégorie, sans lire leurs métadonnées (contrairement
