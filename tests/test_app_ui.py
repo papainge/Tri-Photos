@@ -416,6 +416,46 @@ class TestPreferencesPersistence(AppTestCase):
         save_preferences.assert_called_once_with("jour", False, "deplacer")
 
 
+class TestInitialGeometry(AppTestCase):
+    """_set_initial_geometry() (voir app_ui.py) corrige la fenêtre trop petite au
+    lancement en calculant sa taille depuis les widgets réellement construits, plutôt
+    qu'une valeur fixe codée en dur.
+
+    winfo_width()/winfo_height() et même geometry() ne refléteraient pas fidèlement ce
+    qui a été demandé ici : root.withdraw() (voir AppTestCase.setUp) empêche la fenêtre
+    d'être jamais mappée à l'écran, et Tk ne "réalise" la géométrie demandée qu'au
+    moment où le gestionnaire de fenêtres la négocie — ce qui n'arrive jamais pour une
+    fenêtre retirée. Ces tests vérifient donc directement les valeurs passées à
+    geometry()/minsize(), plutôt que l'état résultant du widget.
+    """
+
+    def test_uses_a_760_floor_and_the_real_required_height(self):
+        self.root.update_idletasks()
+        reqwidth = self.root.winfo_reqwidth()
+        reqheight = self.root.winfo_reqheight()
+
+        with unittest.mock.patch.object(self.root, "geometry") as mock_geometry:
+            with unittest.mock.patch.object(self.root, "minsize") as mock_minsize:
+                self.app._set_initial_geometry()
+
+        expected_width = max(760, reqwidth)
+        mock_geometry.assert_called_once_with(f"{expected_width}x{reqheight}")
+        mock_minsize.assert_called_once_with(expected_width, reqheight)
+
+    def test_grows_past_760_when_content_needs_more(self):
+        # Régression inverse : un plancher de 760 ne doit jamais réduire une largeur
+        # naturellement plus grande — sinon on retomberait dans une variante du même bug
+        # (fenêtre trop petite pour son propre contenu).
+        with unittest.mock.patch.object(self.root, "winfo_reqwidth", return_value=1000):
+            with unittest.mock.patch.object(self.root, "winfo_reqheight", return_value=800):
+                with unittest.mock.patch.object(self.root, "geometry") as mock_geometry:
+                    with unittest.mock.patch.object(self.root, "minsize") as mock_minsize:
+                        self.app._set_initial_geometry()
+
+        mock_geometry.assert_called_once_with("1000x800")
+        mock_minsize.assert_called_once_with(1000, 800)
+
+
 class TestRefreshTreeview(AppTestCase):
     def test_populates_total_label_and_tree_nodes(self):
         self.app.tree_data = {"photos": {"2024": {"01": {"15": ["a.jpg", "b.jpg"]}}}, "videos": {}}

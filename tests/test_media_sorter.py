@@ -21,6 +21,8 @@ os.environ.setdefault("TRIPHOTOS_CONFIG_DIR", str(Path(tempfile.gettempdir()) / 
 
 from PIL import Image
 
+import app_ui
+import cli
 import media_sorter as ps
 import photo_metadata as pm
 import video_metadata as vm
@@ -1459,6 +1461,53 @@ class TestPathPartsToFolderNames(unittest.TestCase):
 
     def test_leaves_year_only_path_untouched(self):
         self.assertEqual(ps.path_parts_to_folder_names(("2024",)), ["2024"])
+
+
+class TestMain(unittest.TestCase):
+    """main() décide entre CLI et interface graphique selon la présence d'arguments en
+    ligne de commande (voir cli.py) : sans argument, comportement historique inchangé
+    (lancement de Tkinter). Les deux branches importent localement (from cli import
+    run_cli / from app_ui import MediaSorterApp) pour éviter un import circulaire — on
+    patche donc l'attribut sur le module cible (cli.run_cli, app_ui.MediaSorterApp)
+    plutôt que sur media_sorter, exactement comme le ferait cet import local au moment
+    de l'appel.
+    """
+
+    def test_dispatches_to_the_cli_when_arguments_are_given(self):
+        argv = ["media_sorter.py", "--source", "x", "--dest", "y", "--force"]
+        # tk.Tk est aussi patchée ici, alors que cette branche ne doit pas s'en servir :
+        # si la bascule régresse et tombe côté GUI, un vrai root.mainloop() bloquerait le
+        # test indéfiniment plutôt que de faire échouer une assertion — un filet contre
+        # ce risque précis, pas une attente de ce comportement.
+        with unittest.mock.patch.object(sys, "argv", argv):
+            with unittest.mock.patch.object(cli, "run_cli", return_value=0) as run_cli:
+                with unittest.mock.patch.object(ps.tk, "Tk") as mock_tk_class:
+                    with self.assertRaises(SystemExit) as ctx:
+                        ps.main()
+
+        run_cli.assert_called_once_with(["--source", "x", "--dest", "y", "--force"])
+        self.assertEqual(ctx.exception.code, 0)
+        mock_tk_class.assert_not_called()
+
+    def test_propagates_the_cli_exit_code(self):
+        with unittest.mock.patch.object(sys, "argv", ["media_sorter.py", "--source", "x", "--dest", "y"]):
+            with unittest.mock.patch.object(cli, "run_cli", return_value=1):
+                with unittest.mock.patch.object(ps.tk, "Tk") as mock_tk_class:
+                    with self.assertRaises(SystemExit) as ctx:
+                        ps.main()
+
+        self.assertEqual(ctx.exception.code, 1)
+        mock_tk_class.assert_not_called()
+
+    def test_launches_the_gui_when_no_arguments_are_given(self):
+        with unittest.mock.patch.object(sys, "argv", ["media_sorter.py"]):
+            with unittest.mock.patch.object(app_ui, "MediaSorterApp") as mock_app_class:
+                with unittest.mock.patch.object(ps.tk, "Tk") as mock_tk_class:
+                    ps.main()
+
+        mock_tk_class.assert_called_once_with()
+        mock_app_class.assert_called_once_with(mock_tk_class.return_value)
+        mock_tk_class.return_value.mainloop.assert_called_once_with()
 
 
 if __name__ == "__main__":
