@@ -462,7 +462,7 @@ class MediaSorterApp:
         # au contenu actuel du champ "Dossier source" : sinon il suffit de vider ou
         # modifier ce champ après l'analyse pour contourner la vérification.
         if self._scanned_source_paths:
-            resolved_dest = dest_path.resolve()
+            resolved_dest = self._resolve_key(dest_path)
             if any(
                 resolved_dest == scanned or resolved_dest.is_relative_to(scanned)
                 for scanned in self._scanned_source_paths

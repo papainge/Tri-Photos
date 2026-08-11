@@ -818,6 +818,24 @@ class TestStartCopyValidation(AppTestCase):
         self.assertEqual(self.messages[0][:2], ("showerror", "Dossier de destination invalide"))
         self.assertEqual(list(self.src_dir.rglob("*.jpg")), [self.src_dir / "a.jpg"])
 
+    def test_start_copy_falls_back_when_dest_resolve_raises_oserror(self):
+        # _resolve_key() (utilisée partout ailleurs : add_source, _scan_done) absorbe déjà
+        # un OSError sur resolve() (chemin réseau capricieux, boucle de liens symboliques)
+        # en retombant sur le chemin non résolu — start_copy() doit en bénéficier au même
+        # titre, plutôt que de laisser une trace Python brute remonter jusqu'à l'appelant.
+        photo = self._make_photo("a.jpg")
+        self.app.tree_data = {"photos": {"2024": {"01": {"15": [photo]}}}, "videos": {}}
+        self.app._scanned_source_paths = [self.src_dir.resolve()]
+        self.app.dest_dir.set(str(self.dest_dir))
+        self._askyesno_answer = False  # décliner suffit : pas besoin de lancer une vraie copie
+
+        with unittest.mock.patch.object(Path, "resolve", side_effect=OSError("chemin indisponible")):
+            self.app.start_copy()  # ne doit lever aucune exception
+
+        # Le garde-fou ne s'est pas déclenché à tort (dest_dir != src_dir) : seule la
+        # confirmation, déclinée, a arrêté la copie.
+        self.assertEqual(self.messages, [])
+
 
 class TestCopyLifecycle(AppTestCase):
     def test_successful_copy_transfers_files_and_shows_summary(self):
