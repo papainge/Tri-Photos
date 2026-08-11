@@ -117,10 +117,21 @@ def run_cli(argv) -> int:
             print("Annulé.")
             return 1
 
-    done, duplicates, errors = media_sorter.copy_files(
-        destination_map, dest_path, args.mode,
-        rename_files=args.rename, use_filename_fallback=args.filename_fallback,
-    )
+    try:
+        done, duplicates, errors = media_sorter.copy_files(
+            destination_map, dest_path, args.mode,
+            rename_files=args.rename, use_filename_fallback=args.filename_fallback,
+        )
+    except Exception as exc:
+        # copy_files() protège déjà chaque fichier et chaque dossier de destination
+        # individuellement (voir son docstring) : ce filet ne se déclencherait qu'en cas
+        # de bug véritablement imprévu. Justement le pire endroit pour ne pas en avoir —
+        # le CLI cible l'automatisation non surveillée (tâche planifiée), où une trace
+        # Python brute non journalisée ne serait vue par personne (voir app_ui._copy_worker,
+        # qui journalise déjà ce même cas côté GUI).
+        media_sorter.logger.exception("Échec de la copie vers %s", dest_path)
+        print(f"Erreur lors de la copie : {exc}", file=sys.stderr)
+        return 1
 
     transferred = done - duplicates - len(errors)
     action_past = "déplacé(s)" if args.mode == "deplacer" else "copié(s)"

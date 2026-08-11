@@ -226,6 +226,24 @@ class TestRunCliErrors(CliTestCase):
         self.assertIn("1 erreur(s)", err)
         self.assertIn("boom", err)
 
+    def test_returns_1_logs_and_reports_an_unexpected_exception_from_copy_files(self):
+        # copy_files() protège déjà chaque fichier/dossier de destination individuellement
+        # (voir TestRunCliErrors ci-dessus) : ce test couvre le cas d'un échec véritablement
+        # imprévu (bug, erreur non anticipée) qui échapperait à cette protection interne —
+        # symétrique de app_ui._copy_worker côté GUI, qui journalise déjà ce même cas.
+        self._make_photo("a.jpg", date=datetime(2024, 1, 15))
+
+        with unittest.mock.patch.object(ms, "copy_files", side_effect=RuntimeError("boom inattendu")):
+            with unittest.mock.patch.object(ms.logger, "exception") as logger_exception:
+                exit_code, _out, err = self._run(
+                    ["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--force"]
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Erreur lors de la copie", err)
+        self.assertIn("boom inattendu", err)
+        logger_exception.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
