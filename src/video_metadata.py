@@ -136,6 +136,9 @@ def _iter_riff_chunks(f, start: int, end: int):
         offset = data_end + (size % 2)  # les chunks RIFF sont alignés sur 2 octets
 
 
+MAX_IDIT_SIZE = 128  # largement suffisant pour toute chaîne de date IDIT réelle
+
+
 def get_avi_creation_date(path: Path):
     """Lit la date de création dans le chunk "IDIT" (LIST "INFO") d'un fichier AVI,
     sans dépendance externe. Renvoie None si absente, invalide, ou si le fichier n'a
@@ -155,6 +158,13 @@ def get_avi_creation_date(path: Path):
             for sub_fourcc, sub_start, sub_end in _iter_riff_chunks(f, data_start + 4, data_end):
                 if sub_fourcc != "IDIT":
                     continue
+                # Contrairement aux autres chunks RIFF (jamais lus, seulement sautés via
+                # leur taille déclarée), IDIT est ici réellement chargé en mémoire : borné
+                # à MAX_IDIT_SIZE plutôt qu'à sa taille déclarée (potentiellement toute la
+                # taille du fichier sur un AVI corrompu ou forgé), qui n'a par ailleurs
+                # aucune raison légitime de dépasser une poignée d'octets pour une date.
+                if sub_end - sub_start > MAX_IDIT_SIZE:
+                    return None
                 f.seek(sub_start)
                 raw = f.read(sub_end - sub_start)
                 text = raw.split(b"\x00")[0].decode("ascii", errors="ignore").strip()

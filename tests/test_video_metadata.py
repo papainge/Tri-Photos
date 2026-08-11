@@ -127,6 +127,39 @@ class TestAviCreationDate(unittest.TestCase):
 
         self.assertIsNone(vm.get_avi_creation_date(path))
 
+    def _write_avi_with_declared_idit_size(self, path, idit_content, declared_size):
+        # Contrairement à _write_fake_avi (taille déclarée = taille réelle du contenu),
+        # permet de forger une taille de chunk IDIT différente du contenu réellement
+        # présent — pour tester le plafond MAX_IDIT_SIZE au plus près de sa frontière.
+        def chunk_header(fourcc, size):
+            return struct.pack("<4sI", fourcc, size)
+
+        idit_header = chunk_header(b"IDIT", declared_size)
+        info_list_content = b"INFO" + idit_header + idit_content
+        info_list_header = chunk_header(b"LIST", len(info_list_content))
+        riff_content = b"AVI " + info_list_header + info_list_content
+        path.write_bytes(chunk_header(b"RIFF", len(riff_content)) + riff_content)
+
+    def test_reads_idit_at_exactly_the_max_size_boundary(self):
+        path = self.dir / "video.avi"
+        expected = datetime(2020, 3, 4, 5, 6, 7)
+        idit_text = expected.strftime("%a %b %d %H:%M:%S %Y")
+        idit_content = idit_text.encode("ascii").ljust(vm.MAX_IDIT_SIZE, b"\x00")
+        self._write_avi_with_declared_idit_size(path, idit_content, vm.MAX_IDIT_SIZE)
+
+        self.assertEqual(vm.get_avi_creation_date(path), expected)
+
+    def test_rejects_idit_one_byte_over_the_max_size_boundary(self):
+        # Contenu par ailleurs parfaitement valide (même date que le test ci-dessus) :
+        # seule la taille déclarée du chunk dépasse le plafond d'un octet, pour isoler
+        # la frontière exacte plutôt qu'un cas grossièrement surdimensionné.
+        path = self.dir / "video.avi"
+        idit_text = datetime(2020, 3, 4, 5, 6, 7).strftime("%a %b %d %H:%M:%S %Y")
+        idit_content = idit_text.encode("ascii").ljust(vm.MAX_IDIT_SIZE + 1, b"\x00")
+        self._write_avi_with_declared_idit_size(path, idit_content, vm.MAX_IDIT_SIZE + 1)
+
+        self.assertIsNone(vm.get_avi_creation_date(path))
+
 
 class TestWmvCreationDate(unittest.TestCase):
     def setUp(self):
@@ -373,6 +406,50 @@ class TestVideoParserLoad(unittest.TestCase):
         elapsed = time.time() - start
 
         self.assertEqual(date, expected)
+        self.assertLess(elapsed, MAX_SECONDS_LARGE_FILE)
+
+    def test_avi_rejects_an_oversized_idit_chunk_without_reading_it(self):
+        # Régression : contrairement au LIST "JUNK" ci-dessus (jamais lu, seulement
+        # sauté via sa taille déclarée), le chunk IDIT lui-même était intégralement lu
+        # en mémoire selon sa taille déclarée dans l'en-tête RIFF — un fichier corrompu
+        # ou forgé pouvait y déclarer une taille couvrant tout le fichier.
+        #
+        # Une date parfaitement valide et exploitable est placée en tête du chunk
+        # IDIT, avant le padding creux qui simule sa taille énorme : sans le plafond
+        # MAX_IDIT_SIZE, le parseur la lirait et la retournerait normalement (comme
+        # test_uses_idit_date), ce qui prouverait que le test ne détecterait pas une
+        # régression du plafond. Avec le plafond, la taille déclarée du chunk (bien
+        # plus grande que MAX_IDIT_SIZE) le fait rejeter avant toute lecture, quelle
+        # que soit la validité du contenu qu'il contient réellement.
+        path = self.dir / "forged_idit.avi"
+        idit_text = datetime(2021, 8, 20, 10, 0, 0).strftime("%a %b %d %H:%M:%S %Y")
+        idit_data = idit_text.encode("ascii") + b"\x00"
+        idit_size = 150 * 1024 * 1024  # pair, pour rester aligné sans octet de padding
+
+        def chunk_header(fourcc, size):
+            return struct.pack("<4sI", fourcc, size)
+
+        idit_header = chunk_header(b"IDIT", idit_size)
+        info_list_content_size = 4 + len(idit_header) + idit_size  # "INFO" + en-tête + contenu IDIT
+        info_list_header = chunk_header(b"LIST", info_list_content_size)
+        riff_content_size = 4 + len(info_list_header) + info_list_content_size
+
+        with open(path, "wb") as f:
+            f.write(chunk_header(b"RIFF", riff_content_size))
+            f.write(b"AVI ")
+            f.write(info_list_header)
+            f.write(b"INFO")
+            f.write(idit_header)
+            f.write(idit_data)  # date valide en tête du chunk IDIT (voir commentaire ci-dessus)
+            f.seek(idit_size - len(idit_data) - 1, os.SEEK_CUR)  # reste du chunk : creux, jamais écrit
+            f.write(b"\x00")
+        self.assertGreater(path.stat().st_size, idit_size)
+
+        start = time.time()
+        date = vm.get_avi_creation_date(path)
+        elapsed = time.time() - start
+
+        self.assertIsNone(date)
         self.assertLess(elapsed, MAX_SECONDS_LARGE_FILE)
 
     def test_wmv_ignores_large_trailing_data_object_efficiently(self):
