@@ -106,6 +106,14 @@ def run_cli(argv) -> int:
 
     verb = "déplacer" if args.mode == "deplacer" else "copier"
     print(f"{total} fichier(s) trouvé(s) à {verb} vers {dest_path}.")
+
+    no_info_counts = media_sorter.count_no_info_by_reason(tree)
+    if no_info_counts:
+        total_no_info = sum(no_info_counts.values())
+        print(f"Dont {total_no_info} sans date exploitable (classé(s) dans « No Info ») :")
+        for reason, count in sorted(no_info_counts.items()):
+            print(f"  - {reason} : {count}")
+
     if not args.force:
         try:
             answer = input(f"Confirmer ({verb}) ? [o/N] ").strip().lower()

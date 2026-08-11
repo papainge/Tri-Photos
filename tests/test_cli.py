@@ -182,6 +182,28 @@ class TestRunCliTransfer(CliTestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("2 fichier(s) copié(s)", out)
 
+    def test_reports_no_info_breakdown_by_reason_when_present(self):
+        # GIF n'a pas de mécanisme EXIF (voir media_sorter.UNSUPPORTED_DATE_EXTENSIONS) :
+        # toujours classé No Info, sans dépendre d'une métadonnée particulière à simuler.
+        self._make_photo("a.jpg", date=datetime(2024, 1, 15))
+        Image.new("RGB", (2, 2)).save(self.src_dir / "no_date.gif", format="GIF")
+
+        exit_code, out, _err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--force"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Dont 1 sans date exploitable", out)
+        self.assertIn(f"{ms.NO_INFO_REASON_UNSUPPORTED_FORMAT} : 1", out)
+        # Le fichier No Info est malgré tout transféré, comme côté UI (voir build_destination_map).
+        self.assertTrue((self.dest_dir / ms.NO_INFO_LABEL / "no_date.gif").exists())
+
+    def test_omits_no_info_breakdown_when_absent(self):
+        self._make_photo("a.jpg", date=datetime(2024, 1, 15))
+
+        exit_code, out, _err = self._run(["--source", str(self.src_dir), "--dest", str(self.dest_dir), "--force"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertNotIn("sans date exploitable", out)
+
 
 class TestRunCliConfirmationPrompt(CliTestCase):
     def test_cancels_when_user_declines(self):

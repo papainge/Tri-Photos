@@ -1316,6 +1316,29 @@ class TestGroupNoInfoByReason(unittest.TestCase):
         self.assertEqual(ps.group_no_info_by_reason(node), node)
 
 
+class TestCountNoInfoByReason(unittest.TestCase):
+    """count_no_info_by_reason() donne au CLI (pas d'aperçu arborescent) le même résumé
+    par cause que celui que build_display_tree calcule déjà pour l'UI."""
+
+    def test_counts_across_both_categories(self):
+        tree = {
+            "photos": {"2024": {"01": {"15": ["a"]}}, ps.NO_INFO_LABEL: [Path("a.gif"), Path("b.jpg")]},
+            "videos": {ps.NO_INFO_LABEL: [Path("c.mpg")]},
+        }
+
+        counts = ps.count_no_info_by_reason(tree)
+
+        self.assertEqual(
+            counts,
+            {ps.NO_INFO_REASON_UNSUPPORTED_FORMAT: 2, ps.NO_INFO_REASON_NO_USABLE_DATE: 1},
+        )
+
+    def test_empty_when_no_no_info_files(self):
+        tree = {"photos": {"2024": {"01": {"15": ["a"]}}}, "videos": {}}
+
+        self.assertEqual(ps.count_no_info_by_reason(tree), {})
+
+
 class TestMergeMediaTrees(unittest.TestCase):
     def test_merges_photos_and_videos_into_one_tree(self):
         tree = {

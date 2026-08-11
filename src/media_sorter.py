@@ -233,6 +233,19 @@ def group_no_info_by_reason(node: dict) -> dict:
     return result
 
 
+def count_no_info_by_reason(tree: dict) -> dict:
+    """Compte, par cause probable (voir explain_no_info), les fichiers classés sous
+    NO_INFO_LABEL dans un arbre brut de scan_media() (toutes catégories confondues).
+
+    app_ui.py obtient déjà cette répartition "gratuitement" via build_display_tree (qui
+    appelle group_no_info_by_reason pour l'aperçu) ; cli.py n'a pas d'aperçu arborescent,
+    d'où cette fonction dédiée pour afficher un résumé texte équivalent sans dupliquer la
+    logique de regroupement elle-même.
+    """
+    grouped = group_no_info_by_reason(merge_media_trees(tree))
+    return {reason: len(files) for reason, files in grouped.get(NO_INFO_LABEL, {}).items()}
+
+
 def get_media_date(path: Path, use_filename_fallback: bool = False):
     """Renvoie la date de prise de vue/création lue dans les métadonnées (EXIF ou
     vidéo), ou None si aucune métadonnée de date n'est trouvée.
