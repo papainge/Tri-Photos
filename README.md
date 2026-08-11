@@ -195,6 +195,10 @@ Options principales (voir `--help` pour la liste complète) :
 - `--force` : ne demande pas de confirmation avant de transférer — nécessaire pour une
   tâche planifiée, qui n'a personne pour répondre à un prompt.
 
+Le résumé affiché avant confirmation indique aussi, le cas échéant, combien de fichiers
+n'ont pas de date exploitable et pourquoi (même classement que l'interface graphique,
+voir [Formats supportés](#formats-supportés)).
+
 Le code de sortie du processus est `0` en cas de succès, `1` en cas d'erreur,
 d'annulation ou de dossier source/destination invalide — à vérifier dans le script ou la
 tâche planifiée appelante.
