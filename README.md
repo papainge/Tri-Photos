@@ -18,6 +18,7 @@ Fonctionne sous Windows, Linux et macOS.
 src/media_sorter.py     Point d'entrée ; logique de scan/tri/copie/hash (sans dépendance Tkinter)
 src/app_ui.py           Interface Tkinter (MediaSorterApp), délègue tout à media_sorter.py
 src/cli.py              Interface en ligne de commande (automatisation), délègue aussi à media_sorter.py
+src/app_config.py       Journalisation et préférences utilisateur (indépendant de la logique de tri)
 src/photo_metadata.py   Lecture de la date EXIF des photos
 src/video_metadata.py   Lecture de la date de création des vidéos (MP4, AVI, WMV, MKV/WEBM)
 src/media_date_utils.py Filtre de plausibilité partagé (écarte les dates aberrantes)
@@ -235,6 +236,10 @@ Chaque module de `src/` a son fichier de tests dédié (module `unittest`) :
   transfert réel de fichiers (niveau de tri, séparation Photos/Vidéos, copier/déplacer,
   plusieurs dossiers sources), confirmation interactive (accord, refus, absence
   d'entrée disponible)
+- `tests/test_app_config.py` — journalisation et préférences (`app_config.py`) :
+  résolution des dossiers de logs/configuration (et leur override par variable
+  d'environnement, utilisé par les autres fichiers de tests), persistance des
+  préférences (valeurs par défaut, aller-retour, fichier corrompu ou invalide)
 - `tests/test_load.py` — tests de charge génériques : plusieurs milliers de fichiers
   répartis sur des dizaines de dossiers/dates (`scan_media`, agrégation, détection de
   doublons face à un dossier de destination déjà bien rempli)

@@ -15,10 +15,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-# Avant l'import : redirige les logs de media_sorter hors du vrai dossier de logs de la
-# machine qui exécute les tests (voir media_sorter._log_directory). Les tests de charge
-# génèrent volontairement de nombreux fichiers sans métadonnée exploitable, qui
-# déclencheraient sinon des avertissements en rafale dans le journal réel de l'utilisateur.
+# Avant l'import : redirige les logs (app_config.py, importé par media_sorter) hors du
+# vrai dossier de logs de la machine qui exécute les tests (voir app_config._log_directory).
+# Les tests de charge génèrent volontairement de nombreux fichiers sans métadonnée
+# exploitable, qui déclencheraient sinon des avertissements en rafale dans le journal réel
+# de l'utilisateur.
 os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
 os.environ.setdefault("TRIPHOTOS_CONFIG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-config"))
 

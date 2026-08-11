@@ -13,14 +13,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-# Avant l'import : redirige les logs et préférences de media_sorter hors des vrais
-# dossiers de la machine qui exécute les tests (voir media_sorter._log_directory,
-# media_sorter._config_directory et test_load.py).
+# Avant l'import : redirige les logs et préférences (app_config.py, importé par
+# media_sorter) hors des vrais dossiers de la machine qui exécute les tests (voir
+# app_config._log_directory, app_config._config_directory et test_load.py).
 os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
 os.environ.setdefault("TRIPHOTOS_CONFIG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-config"))
 
 from PIL import Image
 
+import app_config
 import app_ui
 import cli
 import media_sorter as ps
@@ -94,8 +95,8 @@ class TestGetMediaDate(unittest.TestCase):
         # patcher pm.get_photo_exif_date ne l'affecterait pas.
         with unittest.mock.patch.object(ps, "get_photo_exif_date", side_effect=OSError("fichier corrompu")):
             # L'exception absorbée n'est pas pour autant silencieuse : elle doit rester
-            # diagnosticable a posteriori (voir ps.logger, écrit aussi dans un fichier).
-            with self.assertLogs(ps.logger, level="WARNING"):
+            # diagnosticable a posteriori (voir app_config.logger, écrit aussi dans un fichier).
+            with self.assertLogs(app_config.logger, level="WARNING"):
                 self.assertIsNone(ps.get_media_date(path))
 
     def test_returns_none_when_video_metadata_parser_raises(self):
@@ -103,7 +104,7 @@ class TestGetMediaDate(unittest.TestCase):
         path.write_bytes(b"\x00" * 16)
 
         with unittest.mock.patch.object(ps, "get_video_creation_date", side_effect=OSError("fichier corrompu")):
-            with self.assertLogs(ps.logger, level="WARNING"):
+            with self.assertLogs(app_config.logger, level="WARNING"):
                 self.assertIsNone(ps.get_media_date(path))
 
     def test_filename_fallback_disabled_by_default_even_with_a_dated_name(self):
@@ -409,50 +410,6 @@ class TestCountMediaFiles(unittest.TestCase):
         counts = ps.count_media_files([self.dir, other_dir])
 
         self.assertEqual(counts, {"photos": 2, "videos": 1})
-
-
-class TestPreferences(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmpdir.cleanup)
-        # Isole du dossier partagé TRIPHOTOS_CONFIG_DIR (voir en tête de fichier) : sinon
-        # une préférence sauvegardée par un test polluerait celles lues par un autre.
-        original = os.environ.get("TRIPHOTOS_CONFIG_DIR")
-        os.environ["TRIPHOTOS_CONFIG_DIR"] = self.tmpdir.name
-        self.addCleanup(self._restore_env_var, original)
-
-    @staticmethod
-    def _restore_env_var(original):
-        if original is None:
-            os.environ.pop("TRIPHOTOS_CONFIG_DIR", None)
-        else:
-            os.environ["TRIPHOTOS_CONFIG_DIR"] = original
-
-    def test_load_returns_defaults_when_file_missing(self):
-        self.assertEqual(ps.load_preferences(), ps.DEFAULT_PREFERENCES)
-
-    def test_save_then_load_roundtrips(self):
-        ps.save_preferences("annee", True, "deplacer")
-
-        self.assertEqual(
-            ps.load_preferences(),
-            {"sort_level": "annee", "separate_media": True, "copy_mode": "deplacer"},
-        )
-
-    def test_load_falls_back_to_defaults_on_corrupt_json(self):
-        config_path = Path(self.tmpdir.name) / ps.PREFERENCES_FILE_NAME
-        config_path.write_text("not valid json{{{", encoding="utf-8")
-
-        self.assertEqual(ps.load_preferences(), ps.DEFAULT_PREFERENCES)
-
-    def test_load_ignores_invalid_values(self):
-        config_path = Path(self.tmpdir.name) / ps.PREFERENCES_FILE_NAME
-        config_path.write_text(
-            '{"sort_level": "siecle", "separate_media": "oui", "copy_mode": "voler"}',
-            encoding="utf-8",
-        )
-
-        self.assertEqual(ps.load_preferences(), ps.DEFAULT_PREFERENCES)
 
 
 class TestRawFormatsSupport(unittest.TestCase):
@@ -1077,8 +1034,8 @@ class TestCopyFiles(unittest.TestCase):
 
         with unittest.mock.patch.object(ps.shutil, "copy2", side_effect=fail_for_b_only):
             # L'échec doit rester diagnosticable a posteriori, pas seulement remonté dans
-            # errors (voir ps.logger, écrit aussi dans un fichier).
-            with self.assertLogs(ps.logger, level="WARNING"):
+            # errors (voir app_config.logger, écrit aussi dans un fichier).
+            with self.assertLogs(app_config.logger, level="WARNING"):
                 done, duplicates, errors = ps.copy_files(destination_map, self.dest_dir, "copier")
 
         self.assertEqual(done, 3)

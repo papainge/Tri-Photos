@@ -19,6 +19,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import app_config
 import media_sorter
 
 
@@ -137,7 +138,7 @@ def run_cli(argv) -> int:
         # le CLI cible l'automatisation non surveillée (tâche planifiée), où une trace
         # Python brute non journalisée ne serait vue par personne (voir app_ui._copy_worker,
         # qui journalise déjà ce même cas côté GUI).
-        media_sorter.logger.exception("Échec de la copie vers %s", dest_path)
+        app_config.logger.exception("Échec de la copie vers %s", dest_path)
         print(f"Erreur lors de la copie : {exc}", file=sys.stderr)
         return 1
 

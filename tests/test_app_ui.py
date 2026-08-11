@@ -27,9 +27,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-# Avant l'import : redirige les logs et préférences de media_sorter hors des vrais
-# dossiers de la machine qui exécute les tests (voir media_sorter._log_directory,
-# media_sorter._config_directory et test_load.py).
+# Avant l'import : redirige les logs et préférences (app_config.py, importé par
+# media_sorter/app_ui) hors des vrais dossiers de la machine qui exécute les tests (voir
+# app_config._log_directory, app_config._config_directory et test_load.py).
 os.environ.setdefault("TRIPHOTOS_LOG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-logs"))
 os.environ.setdefault("TRIPHOTOS_CONFIG_DIR", str(Path(tempfile.gettempdir()) / "triphotos-tests-config"))
 
@@ -38,6 +38,7 @@ from tkinter import filedialog, messagebox
 
 from PIL import Image
 
+import app_config
 import app_ui
 import media_sorter as ms
 import photo_metadata as pm
@@ -389,11 +390,12 @@ class TestOnCopyModeChange(AppTestCase):
 class TestPreferencesPersistence(AppTestCase):
     def test_init_applies_saved_preferences(self):
         with unittest.mock.patch.object(
-            ms, "load_preferences",
+            app_config, "load_preferences",
             return_value={"sort_level": "annee", "separate_media": True, "copy_mode": "deplacer"},
-        ):
+        ) as load_preferences:
             app = app_ui.MediaSorterApp(self.root)
 
+        load_preferences.assert_called_once_with(ms.SORT_LEVELS)
         self.assertEqual(app.sort_level.get(), "annee")
         self.assertTrue(app.separate_media.get())
         self.assertEqual(app.copy_mode.get(), "deplacer")
@@ -402,7 +404,7 @@ class TestPreferencesPersistence(AppTestCase):
         self.app.sort_level.set("annee")
         self.app.separate_media.set(True)
 
-        with unittest.mock.patch.object(ms, "save_preferences") as save_preferences:
+        with unittest.mock.patch.object(app_config, "save_preferences") as save_preferences:
             self.app._on_options_change()
 
         save_preferences.assert_called_once_with("annee", True, "copier")
@@ -410,7 +412,7 @@ class TestPreferencesPersistence(AppTestCase):
     def test_on_copy_mode_change_saves_copy_mode(self):
         self.app.copy_mode.set("deplacer")
 
-        with unittest.mock.patch.object(ms, "save_preferences") as save_preferences:
+        with unittest.mock.patch.object(app_config, "save_preferences") as save_preferences:
             self.app._on_copy_mode_change()
 
         save_preferences.assert_called_once_with("jour", False, "deplacer")

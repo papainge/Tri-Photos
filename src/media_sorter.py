@@ -1,6 +1,7 @@
 """Tri de photos et vidéos par date - logique de scan/tri/copie et point d'entrée
 (cross-platform). L'interface Tkinter (MediaSorterApp) vit dans app_ui.py, qui délègue
-ici toute la logique métier.
+ici toute la logique métier. La journalisation et les préférences utilisateur vivent
+dans app_config.py, importé ici comme par tout autre consommateur (voir app_config.logger).
 
 Copyright (C) 2026 Guillaume Pataut
 
@@ -18,8 +19,6 @@ Si ce n'est pas le cas, voir <https://www.gnu.org/licenses/>.
 """
 
 import hashlib
-import json
-import logging
 import os
 import shutil
 import sys
@@ -36,122 +35,10 @@ try:
 except ImportError:
     HEIF_SUPPORTED = False
 
+import app_config
 from media_date_utils import date_from_filename
 from photo_metadata import get_photo_exif_date
 from video_metadata import get_video_creation_date
-
-
-def _log_directory() -> Path:
-    """Dossier de logs, selon la plateforme (Windows : %LOCALAPPDATA%/TriPhotos ; macOS :
-    ~/Library/Logs/TriPhotos ; Linux/autre : ~/.local/share/TriPhotos).
-
-    TRIPHOTOS_LOG_DIR, si définie, prend le pas sur tout le reste : utilisée par les
-    tests pour ne jamais écrire dans le vrai dossier de logs de la machine qui les
-    exécute (voir tests/test_load.py, test_media_sorter.py, test_app_ui.py).
-    """
-    override = os.environ.get("TRIPHOTOS_LOG_DIR")
-    if override:
-        return Path(override)
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if local_appdata:
-        return Path(local_appdata) / "TriPhotos"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Logs" / "TriPhotos"
-    return Path.home() / ".local" / "share" / "TriPhotos"
-
-
-def _configure_logging() -> logging.Logger:
-    """Journalise dans un fichier local les exceptions inattendues rencontrées pendant
-    l'analyse ou la copie (voir get_media_date, copy_files, et _scan_worker/_copy_worker
-    dans app_ui.py) : sans ça, un fichier classé à tort dans No Info ou une copie en échec
-    ne laisse aucune trace au-delà du message affiché une fois à l'écran, rendant tout
-    diagnostic a posteriori impossible (bug de parseur ? fichier réellement corrompu ?
-    accès disque ?).
-
-    N'affecte jamais le comportement utilisateur existant (classement en No Info, message
-    d'erreur) : purement un journal de diagnostic en plus. Si le dossier de logs n'est pas
-    accessible en écriture, l'application continue simplement sans journalisation plutôt
-    que d'échouer pour cette seule raison.
-    """
-    logger = logging.getLogger("triphotos")
-    logger.setLevel(logging.WARNING)
-    try:
-        log_dir = _log_directory()
-        log_dir.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(log_dir / "triphotos.log", encoding="utf-8")
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-        logger.addHandler(handler)
-    except OSError:
-        pass
-    return logger
-
-
-logger = _configure_logging()
-
-
-def _config_directory() -> Path:
-    """Dossier de configuration utilisateur, même logique multi-plateforme que
-    _log_directory (override via TRIPHOTOS_CONFIG_DIR pour les tests, afin de ne jamais
-    lire/écrire les vraies préférences de la machine qui les exécute).
-    """
-    override = os.environ.get("TRIPHOTOS_CONFIG_DIR")
-    if override:
-        return Path(override)
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if local_appdata:
-        return Path(local_appdata) / "TriPhotos"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "TriPhotos"
-    return Path.home() / ".local" / "share" / "TriPhotos"
-
-
-PREFERENCES_FILE_NAME = "preferences.json"
-DEFAULT_PREFERENCES = {"sort_level": "jour", "separate_media": False, "copy_mode": "copier"}
-
-
-def load_preferences() -> dict:
-    """Charge le niveau de tri, la séparation Photos/Vidéos et le mode copier/déplacer
-    choisis lors du dernier lancement, pour ne pas avoir à les reconfigurer à chaque
-    fois. Retourne les valeurs par défaut si le fichier n'existe pas encore, ou si son
-    contenu est illisible/corrompu/invalide : ce réglage est un simple confort, jamais
-    une condition requise pour utiliser l'application.
-    """
-    preferences = dict(DEFAULT_PREFERENCES)
-    path = _config_directory() / PREFERENCES_FILE_NAME
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            saved = json.load(f)
-    except (OSError, ValueError):
-        return preferences
-    if not isinstance(saved, dict):
-        return preferences
-    if saved.get("sort_level") in SORT_LEVELS:
-        preferences["sort_level"] = saved["sort_level"]
-    if isinstance(saved.get("separate_media"), bool):
-        preferences["separate_media"] = saved["separate_media"]
-    if saved.get("copy_mode") in ("copier", "deplacer"):
-        preferences["copy_mode"] = saved["copy_mode"]
-    return preferences
-
-
-def save_preferences(sort_level: str, separate_media: bool, copy_mode: str) -> None:
-    """Sauvegarde le niveau de tri, la séparation Photos/Vidéos et le mode
-    copier/déplacer pour le prochain lancement. Échoue silencieusement si le dossier de
-    configuration n'est pas accessible en écriture (voir load_preferences) : ce n'est
-    qu'un confort, pas une fonctionnalité critique.
-    """
-    config_dir = _config_directory()
-    try:
-        config_dir.mkdir(parents=True, exist_ok=True)
-        path = config_dir / PREFERENCES_FILE_NAME
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                {"sort_level": sort_level, "separate_media": separate_media, "copy_mode": copy_mode},
-                f,
-            )
-    except OSError:
-        pass
-
 
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif",
@@ -268,13 +155,13 @@ def get_media_date(path: Path, use_filename_fallback: bool = False):
         try:
             date = get_photo_exif_date(path)
         except Exception:
-            logger.warning("Lecture de la date EXIF échouée pour %s", path, exc_info=True)
+            app_config.logger.warning("Lecture de la date EXIF échouée pour %s", path, exc_info=True)
             date = None
     else:
         try:
             date = get_video_creation_date(path)
         except Exception:
-            logger.warning("Lecture de la date vidéo échouée pour %s", path, exc_info=True)
+            app_config.logger.warning("Lecture de la date vidéo échouée pour %s", path, exc_info=True)
             date = None
     if date is None and use_filename_fallback:
         date = date_from_filename(path.name)
@@ -824,7 +711,7 @@ def copy_files(
             # moment du mkdir mais plus au moment de lister son contenu — partage réseau
             # débranché entre les deux) ne doit pas abandonner toute la copie : seuls les
             # fichiers de CE dossier sont comptés en erreur, les autres continuent.
-            logger.warning("Dossier de destination inaccessible : %s", target_dir, exc_info=True)
+            app_config.logger.warning("Dossier de destination inaccessible : %s", target_dir, exc_info=True)
             for src_file in files:
                 if cancel_event is not None and cancel_event.is_set():
                     raise CopyCancelled(done, duplicates, errors)
@@ -846,7 +733,7 @@ def copy_files(
                 if result == "duplicate":
                     duplicates += 1
             except Exception as exc:
-                logger.warning("Échec du transfert de %s", src_file, exc_info=True)
+                app_config.logger.warning("Échec du transfert de %s", src_file, exc_info=True)
                 errors.append(f"{src_file}: {exc}")
             done += 1
             if on_progress is not None:

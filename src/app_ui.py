@@ -1,10 +1,11 @@
 """Interface graphique Tkinter (MediaSorterApp) : construction des widgets, gestion
 d'état, threading pour ne jamais bloquer l'interface pendant l'analyse ou la copie.
-Délègue toute la logique de tri/copie/hash à media_sorter (voir ce module), toujours
-via des appels qualifiés (media_sorter.scan_media, media_sorter.copy_files...) plutôt
-que des imports directs de noms : les tests (test_app_ui.py) patchent ces
-fonctions sur le module media_sorter, un import direct (from media_sorter import
-scan_media) capturerait la référence d'origine avant patch et la rendrait invisible ici.
+Délègue toute la logique de tri/copie/hash à media_sorter, et la journalisation/les
+préférences à app_config (voir ces modules), toujours via des appels qualifiés
+(media_sorter.scan_media, app_config.load_preferences...) plutôt que des imports directs
+de noms : les tests (test_app_ui.py) patchent ces fonctions sur leur module respectif, un
+import direct (from media_sorter import scan_media) capturerait la référence d'origine
+avant patch et la rendrait invisible ici.
 
 Copyright (C) 2026 Guillaume Pataut
 Logiciel libre distribué sous licence GNU GPL v3 (ou ultérieure) — voir le fichier
@@ -18,6 +19,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+import app_config
 import media_sorter
 
 
@@ -26,7 +28,7 @@ class MediaSorterApp:
         self.root = root
         self.root.title("Tri de photos par date")
 
-        preferences = media_sorter.load_preferences()
+        preferences = app_config.load_preferences(media_sorter.SORT_LEVELS)
 
         self.source_dirs = []  # dossiers sources sélectionnés (voir add_source)
         self.dest_dir = tk.StringVar()
@@ -203,7 +205,7 @@ class MediaSorterApp:
         self._save_preferences()
 
     def _save_preferences(self):
-        media_sorter.save_preferences(self.sort_level.get(), self.separate_media.get(), self.copy_mode.get())
+        app_config.save_preferences(self.sort_level.get(), self.separate_media.get(), self.copy_mode.get())
 
     def add_source(self):
         # Note UX : filedialog.askdirectory() ne permet de choisir qu'un seul dossier à
@@ -348,7 +350,7 @@ class MediaSorterApp:
             self.root.after(0, self._scan_cancelled)
             return
         except Exception as exc:
-            media_sorter.logger.exception("Échec de l'analyse de %s", source_paths)
+            app_config.logger.exception("Échec de l'analyse de %s", source_paths)
             self.root.after(0, self._scan_failed, exc)
             return
         self.root.after(0, self._scan_done, tree, source_paths)
@@ -519,7 +521,7 @@ class MediaSorterApp:
             self.root.after(0, self._copy_cancelled, done, duplicates, errors, mode)
             return
         except Exception as exc:
-            media_sorter.logger.exception("Échec de la copie vers %s", dest_path)
+            app_config.logger.exception("Échec de la copie vers %s", dest_path)
             self.root.after(0, self._copy_failed, exc)
             return
         self.root.after(0, self._copy_done, done, duplicates, errors, mode)
